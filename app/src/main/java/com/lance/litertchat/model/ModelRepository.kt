@@ -2,7 +2,7 @@ package com.lance.litertchat.model
 
 import java.io.File
 
-class ModelRepository(private val rootDir: File) {
+class ModelRepository(val rootDir: File) {
     private val modelDir = File(rootDir, "models")
     private val metadataFile = File(modelDir, "active-model.properties")
 

@@ -4,6 +4,8 @@ import com.lance.litertchat.download.ModelDownloadClient
 import com.lance.litertchat.inference.ChatEngine
 import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
+import com.lance.litertchat.prompt.PromptFormatterRepository
+import com.lance.litertchat.settings.AppSettingsRepository
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,11 +20,13 @@ import org.junit.runners.model.Statement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -83,7 +87,9 @@ class AppViewModelTest {
 
         val viewModel = AppViewModel(repository)
 
-        assertEquals(AppState(activeModel = metadata), viewModel.state.value)
+        assertEquals(metadata, viewModel.state.value.activeModel)
+        assertEquals(PromptFormatterRepository.DEFAULT_FORMATTER_ID, viewModel.state.value.activePromptFormatterId)
+        assertEquals(1, viewModel.state.value.promptFormatters.size)
     }
 
     @Test
@@ -277,13 +283,230 @@ class AppViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf(modelFile.absolutePath), engine.loadedPaths)
-        assertEquals(listOf("Hello"), engine.prompts)
+        assertEquals(
+            listOf("${PromptFormatterRepository.DEFAULT_FORMATTER_BODY}\n\nUser message:\nHello"),
+            engine.streamingPrompts
+        )
         assertFalse(viewModel.state.value.isGenerating)
         assertNull(viewModel.state.value.errorText)
         assertEquals(
             listOf(ChatMessage("user", "Hello"), ChatMessage("assistant", "Hi there")),
             viewModel.state.value.messages
         )
+    }
+
+    @Test
+    fun sendMessagePrependsActiveFormatterOnlyForModelPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val metadata = installedModel(path = modelFile.absolutePath)
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(metadata)
+        val formatterRepository = PromptFormatterRepository(temporaryFolder.root)
+        val formatter = formatterRepository.createFormatter("Brief", "Answer in two bullets.")
+        formatterRepository.selectFormatter(formatter.id)
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(
+            repository = repository,
+            formatterRepository = formatterRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("What is the sun?")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("Answer in two bullets.\n\nUser message:\nWhat is the sun?"),
+            engine.streamingPrompts
+        )
+        assertEquals(
+            listOf(ChatMessage("user", "What is the sun?"), ChatMessage("assistant", "Done")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun promptFormatterActionsUpdateState() = runTest(mainDispatcherRule.testDispatcher) {
+        val formatterRepository = PromptFormatterRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            formatterRepository = formatterRepository
+        )
+
+        viewModel.createPromptFormatter("Brief", "Use bullets.")
+        advanceUntilIdle()
+        val created = viewModel.state.value.promptFormatters.first { it.name == "Brief" }
+
+        viewModel.selectPromptFormatter(created.id)
+        advanceUntilIdle()
+        viewModel.updatePromptFormatter(created.id, "Brief Mobile", "Use two bullets.")
+        advanceUntilIdle()
+
+        assertEquals(created.id, viewModel.state.value.activePromptFormatterId)
+        assertEquals(
+            "Use two bullets.",
+            viewModel.state.value.promptFormatters.first { it.id == created.id }.body
+        )
+
+        viewModel.deletePromptFormatter(created.id)
+        advanceUntilIdle()
+        assertEquals(PromptFormatterRepository.DEFAULT_FORMATTER_ID, viewModel.state.value.activePromptFormatterId)
+        assertTrue(viewModel.state.value.promptFormatters.none { it.id == created.id })
+    }
+
+    @Test
+    fun resetDefaultPromptFormatterRestoresDefaultBody() = runTest(mainDispatcherRule.testDispatcher) {
+        val formatterRepository = PromptFormatterRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            formatterRepository = formatterRepository
+        )
+
+        viewModel.updatePromptFormatter(PromptFormatterRepository.DEFAULT_FORMATTER_ID, "Default", "Changed")
+        advanceUntilIdle()
+        viewModel.resetDefaultPromptFormatter()
+        advanceUntilIdle()
+
+        assertEquals(
+            PromptFormatterRepository.DEFAULT_FORMATTER_BODY,
+            viewModel.state.value.promptFormatters.first {
+                it.id == PromptFormatterRepository.DEFAULT_FORMATTER_ID
+            }.body
+        )
+    }
+
+    @Test
+    fun sendMessageShowsLoadingAssistantWhileGenerating() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val response = CompletableDeferred<String>()
+        val viewModel = testViewModel(
+            repository = repository,
+            engine = FakeChatEngine(responseDeferred = response)
+        )
+
+        viewModel.sendMessage("Hello")
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isGenerating)
+        assertEquals(
+            listOf(
+                ChatMessage("user", "Hello"),
+                ChatMessage("assistant", "Processing...", isLoading = true)
+            ),
+            viewModel.state.value.messages
+        )
+
+        response.complete("Done")
+        advanceUntilIdle()
+        assertEquals(
+            listOf(
+                ChatMessage("user", "Hello"),
+                ChatMessage("assistant", "Done")
+            ),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun sendMessageStreamsPartialAssistantResponseWhenEnabled() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val engine = FakeChatEngine(streamingResponses = listOf("Hel", "Hello"))
+        val viewModel = testViewModel(repository = repository, engine = engine)
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertTrue(engine.streamingPrompts.isNotEmpty())
+        assertEquals(
+            listOf(ChatMessage("user", "Hi"), ChatMessage("assistant", "Hello")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun sendMessageAccumulatesStreamingDeltas() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val engine = FakeChatEngine(streamingResponses = listOf("with", " more", " text"))
+        val viewModel = testViewModel(repository = repository, engine = engine)
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(ChatMessage("user", "Hi"), ChatMessage("assistant", "with more text")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun sendMessageUsesBlockingGenerationWhenStreamingDisabled() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setStreamResponsesEnabled(false)
+        val engine = FakeChatEngine(response = "Done", streamingResponses = listOf("Streamed"))
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertTrue(engine.streamingPrompts.isEmpty())
+        assertEquals(listOf("Done"), viewModel.state.value.messages.filter { it.role == "assistant" }.map { it.content })
+    }
+
+    @Test
+    fun setStreamResponsesEnabledPersistsAndUpdatesState() {
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            appSettingsRepository = settingsRepository
+        )
+
+        viewModel.setStreamResponsesEnabled(false)
+
+        assertFalse(viewModel.state.value.streamResponsesEnabled)
+        assertFalse(settingsRepository.load().streamResponsesEnabled)
+    }
+
+    @Test
+    fun stopGenerationCancelsActiveResponseAndRemovesLoadingAssistant() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val response = CompletableDeferred<String>()
+        val engine = FakeChatEngine(responseDeferred = response)
+        val viewModel = testViewModel(repository = repository, engine = engine)
+
+        viewModel.sendMessage("Hello")
+        runCurrent()
+        viewModel.stopGeneration()
+        runCurrent()
+
+        assertFalse(viewModel.state.value.isGenerating)
+        assertEquals("Generation stopped.", viewModel.state.value.errorText)
+        assertEquals(1, engine.releaseCount)
+        assertEquals(1, engine.cancelCount)
+        assertEquals(listOf(ChatMessage("user", "Hello")), viewModel.state.value.messages)
+
+        response.complete("Late response")
+        advanceUntilIdle()
+        assertEquals(listOf(ChatMessage("user", "Hello")), viewModel.state.value.messages)
     }
 
     @Test
@@ -366,11 +589,15 @@ class AppViewModelTest {
             destination.parentFile?.mkdirs()
             destination.writeText("model")
         },
+        formatterRepository: PromptFormatterRepository = PromptFormatterRepository(temporaryFolder.root),
+        appSettingsRepository: AppSettingsRepository = AppSettingsRepository(temporaryFolder.root),
         engine: ChatEngine = FakeChatEngine(),
         nanoTimeProvider: () -> Long = { 0L }
     ): AppViewModel =
         AppViewModel(
             repository = repository,
+            promptFormatterRepository = formatterRepository,
+            appSettingsRepository = appSettingsRepository,
             downloader = downloader,
             engine = engine,
             ioDispatcher = mainDispatcherRule.testDispatcher,
@@ -400,11 +627,16 @@ private class FakeDownloader(
 
 private class FakeChatEngine(
     private val response: String = "response",
+    private val responseDeferred: CompletableDeferred<String>? = null,
+    private val streamingResponses: List<String> = emptyList(),
     private val loadFailure: Throwable? = null,
     private val generateFailure: Throwable? = null
 ) : ChatEngine {
     val loadedPaths = mutableListOf<String>()
     val prompts = mutableListOf<String>()
+    val streamingPrompts = mutableListOf<String>()
+    var releaseCount = 0
+    var cancelCount = 0
 
     override suspend fun load(modelFile: File): Result<Unit> {
         loadedPaths += modelFile.absolutePath
@@ -413,10 +645,42 @@ private class FakeChatEngine(
 
     override suspend fun generate(prompt: String): Result<String> {
         prompts += prompt
+        responseDeferred?.let { deferred ->
+            return try {
+                Result.success(deferred.await())
+            } catch (error: CancellationException) {
+                throw error
+            }
+        }
         return generateFailure?.let { Result.failure(it) } ?: Result.success(response)
     }
 
-    override fun release() = Unit
+    override suspend fun generateStreaming(
+        prompt: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String> {
+        streamingPrompts += prompt
+        responseDeferred?.let { deferred ->
+            return try {
+                val value = deferred.await()
+                onPartialResponse(value)
+                Result.success(value)
+            } catch (error: CancellationException) {
+                throw error
+            }
+        }
+        generateFailure?.let { return Result.failure(it) }
+        streamingResponses.forEach(onPartialResponse)
+        return Result.success(streamingResponses.lastOrNull() ?: response)
+    }
+
+    override fun release() {
+        releaseCount += 1
+    }
+
+    override fun cancelGeneration() {
+        cancelCount += 1
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

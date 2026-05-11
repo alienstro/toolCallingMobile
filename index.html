@@ -1,0 +1,1016 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Modern Material 3 Utility App Prototype</title>
+  <style>
+    :root {
+      --bg:      oklch(99% 0.002 240);
+      --surface: oklch(100% 0 0);
+      --fg:      oklch(18% 0.012 250);
+      --muted:   oklch(54% 0.012 250);
+      --border:  oklch(92% 0.005 250);
+      --accent:  oklch(58% 0.18 255);
+
+      --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      --success: oklch(58% 0.15 150);
+      --warning: oklch(70% 0.14 78);
+      --danger: oklch(60% 0.17 24);
+      --accent-soft: color-mix(in oklch, var(--accent) 12%, white);
+      --ink-soft: oklch(27% 0.012 250);
+      --shadow: 0 24px 80px oklch(18% 0.012 250 / 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); color: var(--fg); }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      font-family: var(--font-body);
+      background:
+        linear-gradient(180deg, oklch(100% 0 0) 0%, var(--bg) 54%),
+        radial-gradient(circle at 50% 0%, color-mix(in oklch, var(--accent) 10%, transparent) 0, transparent 520px);
+      color: var(--fg);
+      letter-spacing: 0;
+    }
+
+    button, input, textarea { font: inherit; }
+    button { border: 0; cursor: pointer; }
+
+    .stage {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(320px, 438px) minmax(260px, 380px);
+      gap: 34px;
+      align-items: center;
+      justify-content: center;
+      padding: 34px;
+    }
+
+    .phone {
+      inline-size: min(438px, calc(100vw - 34px));
+      aspect-ratio: 412 / 900;
+      border: 1px solid oklch(18% 0.012 250 / 0.2);
+      border-radius: 34px;
+      background: oklch(16% 0.012 250);
+      padding: 10px;
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 17px;
+      inset-inline-start: 50%;
+      transform: translateX(-50%);
+      inline-size: 92px;
+      block-size: 25px;
+      border-radius: 999px;
+      background: oklch(9% 0.01 250);
+      z-index: 5;
+    }
+
+    .app {
+      block-size: 100%;
+      border-radius: 25px;
+      overflow: hidden;
+      background: var(--bg);
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      position: relative;
+    }
+
+    .statusbar {
+      block-size: 38px;
+      padding: 10px 22px 0;
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ink-soft);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .system-icons {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+    }
+
+    .signal {
+      display: grid;
+      grid-auto-flow: column;
+      align-items: end;
+      gap: 2px;
+      block-size: 12px;
+    }
+
+    .signal i {
+      display: block;
+      inline-size: 3px;
+      border-radius: 2px;
+      background: currentColor;
+    }
+
+    .signal i:nth-child(1) { block-size: 5px; }
+    .signal i:nth-child(2) { block-size: 8px; }
+    .signal i:nth-child(3) { block-size: 11px; }
+
+    .battery {
+      inline-size: 20px;
+      block-size: 10px;
+      border: 1.5px solid currentColor;
+      border-radius: 3px;
+      position: relative;
+    }
+
+    .battery::before {
+      content: "";
+      position: absolute;
+      inset: 2px 5px 2px 2px;
+      border-radius: 1px;
+      background: currentColor;
+    }
+
+    .battery::after {
+      content: "";
+      position: absolute;
+      inset-inline-end: -4px;
+      top: 2.5px;
+      inline-size: 2px;
+      block-size: 5px;
+      border-radius: 0 2px 2px 0;
+      background: currentColor;
+    }
+
+    .topbar {
+      min-block-size: 66px;
+      padding: 10px 18px 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      border-block-end: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 88%, transparent);
+      backdrop-filter: blur(18px);
+    }
+
+    .title-block { min-inline-size: 0; }
+    .app-title {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 19px;
+      line-height: 1.1;
+      font-weight: 750;
+      letter-spacing: 0;
+      color: var(--fg);
+    }
+
+    .model-line {
+      margin-top: 5px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-inline-size: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dot {
+      inline-size: 7px;
+      block-size: 7px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      background: var(--success);
+      box-shadow: 0 0 0 4px color-mix(in oklch, var(--success) 16%, transparent);
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      inline-size: 38px;
+      block-size: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--fg);
+    }
+
+    .icon {
+      inline-size: 19px;
+      block-size: 19px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+
+    .screen {
+      min-block-size: 0;
+      display: none;
+      overflow: auto;
+      padding: 16px 16px 18px;
+      scrollbar-width: none;
+    }
+
+    .screen::-webkit-scrollbar { display: none; }
+    .screen.is-active { display: block; }
+
+    .chat-log {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 10px;
+    }
+
+    .bubble-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+    }
+
+    .bubble-row.user { justify-content: flex-end; }
+    .bubble-row.assistant { justify-content: flex-start; }
+
+    .avatar {
+      inline-size: 26px;
+      block-size: 26px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      background: var(--fg);
+      color: var(--surface);
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    .bubble {
+      max-inline-size: 82%;
+      padding: 11px 13px;
+      border-radius: 18px;
+      font-size: 14px;
+      line-height: 1.45;
+      border: 1px solid transparent;
+      color: var(--fg);
+      text-wrap: pretty;
+    }
+
+    .bubble p { margin: 0; }
+    .bubble p + p { margin-top: 8px; }
+    .bubble code {
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: oklch(95% 0.005 250);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1px 4px;
+    }
+
+    .bubble ul {
+      margin: 8px 0 0;
+      padding-inline-start: 18px;
+    }
+
+    .assistant .bubble {
+      background: var(--surface);
+      border-color: var(--border);
+      border-end-start-radius: 6px;
+    }
+
+    .user .bubble {
+      background: var(--accent);
+      color: white;
+      border-end-end-radius: 6px;
+    }
+
+    .streaming .bubble {
+      background: var(--accent-soft);
+      border-color: color-mix(in oklch, var(--accent) 18%, var(--border));
+      color: var(--fg);
+    }
+
+    .typing {
+      display: inline-flex;
+      gap: 4px;
+      margin-inline-start: 4px;
+      vertical-align: middle;
+    }
+
+    .typing i {
+      inline-size: 5px;
+      block-size: 5px;
+      border-radius: 999px;
+      background: var(--accent);
+      opacity: 0.42;
+      animation: pulse 1.2s infinite ease-in-out;
+    }
+
+    .typing i:nth-child(2) { animation-delay: 0.16s; }
+    .typing i:nth-child(3) { animation-delay: 0.32s; }
+
+    @keyframes pulse {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+      40% { transform: translateY(-3px); opacity: 1; }
+    }
+
+    .composer-wrap {
+      border-block-start: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 90%, transparent);
+      backdrop-filter: blur(18px);
+      padding: 10px 12px 12px;
+    }
+
+    .stats-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 9px;
+      scrollbar-width: none;
+    }
+
+    .stats-row::-webkit-scrollbar { display: none; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      min-block-size: 25px;
+      padding: 0 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pill strong { color: var(--fg); font-weight: 800; }
+    .pill.accent { border-color: color-mix(in oklch, var(--accent) 22%, var(--border)); color: var(--accent); background: var(--accent-soft); }
+    .pill.good { color: var(--success); background: color-mix(in oklch, var(--success) 10%, white); }
+    .pill.warn { color: oklch(52% 0.12 78); background: color-mix(in oklch, var(--warning) 14%, white); }
+    .pill.danger { color: var(--danger); background: color-mix(in oklch, var(--danger) 10%, white); }
+
+    .composer {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 23px;
+      background: var(--surface);
+      overflow: hidden;
+      box-shadow: 0 1px 0 oklch(100% 0 0) inset;
+    }
+
+    .composer input {
+      inline-size: 100%;
+      min-block-size: 46px;
+      border: 0;
+      outline: 0;
+      padding: 0 15px;
+      color: var(--fg);
+      background: transparent;
+      font-size: 14px;
+    }
+
+    .composer input:disabled {
+      color: var(--muted);
+      background: oklch(96% 0.004 250);
+    }
+
+    .send-btn {
+      inline-size: 48px;
+      block-size: 46px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: var(--accent);
+    }
+
+    .send-btn.stop {
+      color: var(--danger);
+      background: color-mix(in oklch, var(--danger) 10%, white);
+      border-inline-start: 1px solid var(--border);
+    }
+
+    .section-stack {
+      display: grid;
+      gap: 11px;
+      padding-bottom: 8px;
+    }
+
+    .section-title {
+      margin: 4px 2px 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      padding: 13px;
+    }
+
+    .model-card {
+      display: grid;
+      gap: 10px;
+      border-color: color-mix(in oklch, var(--accent) 18%, var(--border));
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+    }
+
+    .card-title {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+      font-weight: 780;
+      color: var(--fg);
+    }
+
+    .card-subtitle {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 9px 8px;
+      background: oklch(99% 0.002 240);
+    }
+
+    .metric b {
+      display: block;
+      font-size: 14px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .action-btn {
+      min-block-size: 39px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--fg);
+      font-size: 12px;
+      font-weight: 780;
+    }
+
+    .action-btn.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: white;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 0;
+      border-block-start: 1px solid var(--border);
+    }
+
+    .row:first-child { border-block-start: 0; padding-top: 0; }
+    .row:last-child { padding-bottom: 0; }
+
+    .row-label {
+      min-inline-size: 0;
+      font-size: 14px;
+      font-weight: 720;
+      color: var(--fg);
+    }
+
+    .row-help {
+      margin-top: 3px;
+      font-size: 12px;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+
+    .switch {
+      inline-size: 42px;
+      block-size: 24px;
+      border-radius: 999px;
+      background: var(--accent);
+      position: relative;
+      box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 40%, transparent);
+    }
+
+    .switch::after {
+      content: "";
+      position: absolute;
+      inline-size: 20px;
+      block-size: 20px;
+      inset-block-start: 2px;
+      inset-inline-end: 2px;
+      border-radius: 999px;
+      background: white;
+    }
+
+    .switch.off {
+      background: oklch(90% 0.005 250);
+    }
+
+    .switch.off::after {
+      inset-inline-end: 20px;
+    }
+
+    .editor {
+      min-block-size: 118px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      background: oklch(98% 0.003 250);
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--ink-soft);
+      white-space: pre-wrap;
+    }
+
+    .info-table {
+      display: grid;
+      gap: 0;
+    }
+
+    .info-row {
+      display: grid;
+      grid-template-columns: minmax(92px, 0.55fr) 1fr;
+      gap: 10px;
+      padding: 9px 0;
+      border-block-start: 1px solid var(--border);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .info-row:first-child { border-block-start: 0; padding-top: 0; }
+    .info-row:last-child { padding-bottom: 0; }
+    .info-key { color: var(--muted); font-weight: 750; }
+    .info-value { color: var(--fg); font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+    .progress {
+      block-size: 7px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: oklch(93% 0.005 250);
+      margin-top: 9px;
+    }
+
+    .progress span {
+      display: block;
+      block-size: 100%;
+      inline-size: var(--value, 62%);
+      border-radius: inherit;
+      background: var(--accent);
+    }
+
+    .bottomnav {
+      min-block-size: 72px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 3px;
+      padding: 8px 12px 12px;
+      border-block-start: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 92%, transparent);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav-item {
+      min-inline-size: 0;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      gap: 3px;
+      padding: 5px 3px;
+      color: var(--muted);
+      background: transparent;
+      font-size: 10px;
+      font-weight: 760;
+    }
+
+    .nav-item .nav-icon {
+      inline-size: 30px;
+      block-size: 24px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+    }
+
+    .nav-item svg {
+      inline-size: 18px;
+      block-size: 18px;
+      stroke-width: 1.9;
+    }
+
+    .nav-item.is-active { color: var(--accent); }
+    .nav-item.is-active .nav-icon { background: var(--accent-soft); }
+
+    .overview {
+      align-self: center;
+      display: grid;
+      gap: 18px;
+      max-inline-size: 380px;
+    }
+
+    .overview h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.04;
+      letter-spacing: 0;
+      color: var(--fg);
+    }
+
+    .overview p {
+      margin: 0;
+      max-inline-size: 34rem;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.55;
+      text-wrap: pretty;
+    }
+
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .preview-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      padding: 12px;
+      text-align: start;
+      color: var(--fg);
+      min-block-size: 104px;
+    }
+
+    .preview-card.is-active {
+      border-color: color-mix(in oklch, var(--accent) 35%, var(--border));
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .preview-card b {
+      display: block;
+      font-size: 13px;
+      line-height: 1.2;
+    }
+
+    .preview-card span {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .system-note {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 860px) {
+      body { background: var(--bg); }
+      .stage {
+        grid-template-columns: 1fr;
+        padding: 18px;
+        gap: 20px;
+      }
+
+      .overview {
+        order: -1;
+        max-inline-size: min(438px, calc(100vw - 34px));
+        justify-self: center;
+      }
+
+      .overview h1 { font-size: 28px; }
+      .preview-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .preview-card { min-block-size: 72px; padding: 9px; }
+      .preview-card span { display: none; }
+    }
+
+    @media (max-width: 500px) {
+      .stage { padding: 12px; }
+      .overview { display: none; }
+      .phone {
+        inline-size: min(100vw - 24px, 438px);
+        border-radius: 30px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001ms !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <section class="phone" aria-label="Android app prototype">
+      <div class="app">
+        <div class="statusbar">
+          <span>10:42</span>
+          <span class="system-icons" aria-hidden="true">
+            <span class="signal"><i></i><i></i><i></i></span>
+            <span>5G</span>
+            <span class="battery"></span>
+          </span>
+        </div>
+
+        <header class="topbar">
+          <div class="title-block">
+            <h2 class="app-title" id="appTitle">Chat</h2>
+            <div class="model-line"><span class="dot" id="statusDot"></span><span id="modelStatus">Gemini 1.5 Flash - Ready</span></div>
+          </div>
+          <div class="top-actions">
+            <button class="icon-btn" aria-label="Sync model">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.8-4.2"/><path d="M4 5v5h5"/><path d="M4 13a8 8 0 0 0 14.8 4.2"/><path d="M20 19v-5h-5"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <section class="screen is-active" data-screen="chat" aria-label="Chat screen">
+          <div class="chat-log">
+            <div class="bubble-row assistant">
+              <div class="avatar">AI</div>
+              <div class="bubble">
+                <p>I can help inspect formatter output, compare models, or summarize diagnostics. Markdown stays readable inside this bubble, including <code>inline code</code>.</p>
+              </div>
+            </div>
+            <div class="bubble-row user">
+              <div class="bubble">
+                <p>Format this response as a compact Kotlin release note.</p>
+              </div>
+            </div>
+            <div class="bubble-row assistant">
+              <div class="avatar">AI</div>
+              <div class="bubble">
+                <p><strong>Release note</strong></p>
+                <ul>
+                  <li>Updated chat layout with Material 3 bubbles.</li>
+                  <li>Added model status in the app bar.</li>
+                  <li>Kept repository and ViewModel behavior unchanged.</li>
+                </ul>
+              </div>
+            </div>
+            <div class="bubble-row assistant streaming">
+              <div class="avatar">AI</div>
+              <div class="bubble">
+                <p>Checking token counts and formatter settings<span class="typing"><i></i><i></i><i></i></span></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="models" aria-label="Models screen">
+          <div class="section-stack">
+            <p class="section-title">Active model</p>
+            <article class="card model-card">
+              <div class="card-top">
+                <div>
+                  <h3 class="card-title">Gemini 1.5 Flash</h3>
+                  <p class="card-subtitle">Default text model - local formatter enabled</p>
+                </div>
+                <span class="pill good">Ready</span>
+              </div>
+              <div class="metric-grid">
+                <div class="metric"><b>7.1k</b><span>Context</span></div>
+                <div class="metric"><b>842ms</b><span>Latency</span></div>
+                <div class="metric"><b>0</b><span>Errors</span></div>
+              </div>
+            </article>
+
+            <p class="section-title">Actions</p>
+            <div class="actions">
+              <button class="action-btn primary">Set active</button>
+              <button class="action-btn">Refresh list</button>
+              <button class="action-btn">Test prompt</button>
+              <button class="action-btn">Clear cache</button>
+            </div>
+
+            <p class="section-title">Status</p>
+            <article class="card">
+              <div class="row">
+                <div><div class="row-label">Repository sync</div><div class="row-help">Last checked 2 min ago</div></div>
+                <span class="pill good">OK</span>
+              </div>
+              <div class="row">
+                <div><div class="row-label">Model download</div><div class="row-help">No pending model assets</div></div>
+                <span class="pill">Idle</span>
+              </div>
+              <div class="row">
+                <div><div class="row-label">Formatter warmup</div><div class="row-help">Progress for current session</div><div class="progress" style="--value: 76%"><span></span></div></div>
+                <span class="pill accent">76%</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="settings" aria-label="Settings screen">
+          <div class="section-stack">
+            <p class="section-title">Generation</p>
+            <article class="card">
+              <div class="row">
+                <div><div class="row-label">Stream responses</div><div class="row-help">Show assistant text as it arrives.</div></div>
+                <span class="switch" role="switch" aria-checked="true"></span>
+              </div>
+              <div class="row">
+                <div><div class="row-label">Auto-save chats</div><div class="row-help">Persist sessions after each assistant response.</div></div>
+                <span class="switch" role="switch" aria-checked="true"></span>
+              </div>
+              <div class="row">
+                <div><div class="row-label">Verbose diagnostics</div><div class="row-help">Include transport and repository timing.</div></div>
+                <span class="switch off" role="switch" aria-checked="false"></span>
+              </div>
+            </article>
+
+            <p class="section-title">Formatter</p>
+            <article class="card">
+              <div class="card-top">
+                <div>
+                  <h3 class="card-title">Markdown formatter</h3>
+                  <p class="card-subtitle">Applied before messages render in assistant bubbles.</p>
+                </div>
+                <span class="pill good">On</span>
+              </div>
+              <div class="editor" aria-label="Formatter editor">trimWhitespace = true
+maxBlankLines = 1
+codeFenceLanguage = "kotlin"
+renderTables = true</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="diagnostics" aria-label="Diagnostics screen">
+          <div class="section-stack">
+            <p class="section-title">Health</p>
+            <article class="card">
+              <div class="card-top">
+                <div>
+                  <h3 class="card-title">Runtime checks</h3>
+                  <p class="card-subtitle">Current session is healthy. One warning is informational.</p>
+                </div>
+                <span class="pill warn">1 warning</span>
+              </div>
+              <div class="stats-row" style="padding: 10px 0 0">
+                <span class="pill good">Repository OK</span>
+                <span class="pill good">ViewModel OK</span>
+                <span class="pill warn">Cache warm</span>
+              </div>
+            </article>
+
+            <p class="section-title">Info</p>
+            <article class="card info-table">
+              <div class="info-row"><span class="info-key">Package</span><span class="info-value">com.example.utilitychat</span></div>
+              <div class="info-row"><span class="info-key">Build</span><span class="info-value">debug - 2026.05.11</span></div>
+              <div class="info-row"><span class="info-key">Transport</span><span class="info-value">HTTP client ready - timeout 30s</span></div>
+              <div class="info-row"><span class="info-key">Renderer</span><span class="info-value">Markdown enabled - tables enabled</span></div>
+              <div class="info-row"><span class="info-key">Last error</span><span class="info-value">None</span></div>
+            </article>
+
+            <p class="section-title">Recent events</p>
+            <article class="card info-table">
+              <div class="info-row"><span class="info-key">10:39:18</span><span class="info-value">Model list refreshed</span></div>
+              <div class="info-row"><span class="info-key">10:40:02</span><span class="info-value">Formatter settings loaded</span></div>
+              <div class="info-row"><span class="info-key">10:41:47</span><span class="info-value">Streaming response completed</span></div>
+            </article>
+          </div>
+        </section>
+
+        <div class="composer-wrap" id="composerWrap">
+          <div class="stats-row">
+            <span class="pill accent"><strong>842</strong> tokens</span>
+            <span class="pill"><strong>1.2s</strong> elapsed</span>
+            <span class="pill"><strong>7.1k</strong> context</span>
+            <span class="pill good">streaming</span>
+          </div>
+          <div class="composer">
+            <input value="Ask about Kotlin app state..." aria-label="Message input">
+            <button class="send-btn stop" aria-label="Stop response">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="8" y="8" width="8" height="8" rx="1.5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <nav class="bottomnav" aria-label="Bottom navigation">
+          <button class="nav-item is-active" data-target="chat" aria-label="Chat">
+            <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v4A3.5 3.5 0 0 1 15.5 14H11l-4.5 4v-4A3.5 3.5 0 0 1 3 10.5v-4Z"/></svg></span>
+            <span>Chat</span>
+          </button>
+          <button class="nav-item" data-target="models" aria-label="Models">
+            <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/><circle cx="8" cy="7" r="1.5"/><circle cx="14" cy="12" r="1.5"/><circle cx="10" cy="17" r="1.5"/></svg></span>
+            <span>Models</span>
+          </button>
+          <button class="nav-item" data-target="settings" aria-label="Settings">
+            <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M5 8h14"/><path d="M5 16h14"/><circle cx="9" cy="8" r="2"/><circle cx="15" cy="16" r="2"/></svg></span>
+            <span>Settings</span>
+          </button>
+          <button class="nav-item" data-target="diagnostics" aria-label="Diagnostics">
+            <span class="nav-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15l3-4 3 2 4-7"/><circle cx="8" cy="15" r="1"/><circle cx="11" cy="11" r="1"/><circle cx="14" cy="13" r="1"/><circle cx="18" cy="6" r="1"/></svg></span>
+            <span>Diag</span>
+          </button>
+        </nav>
+      </div>
+    </section>
+
+    <aside class="overview" aria-label="Prototype notes">
+      <h1>Modern Material 3 utility shell for a Kotlin chat app.</h1>
+      <p>Clean top app bar, compact status language, chat bubbles with markdown, and dense model/settings/diagnostics cards. The visual system uses the chosen modern-minimal palette verbatim.</p>
+      <div class="preview-grid">
+        <button class="preview-card is-active" data-target="chat"><b>Chat</b><span>Bubbles, stats pills, streaming stop state.</span></button>
+        <button class="preview-card" data-target="models"><b>Models</b><span>Active model, actions, progress chips.</span></button>
+        <button class="preview-card" data-target="settings"><b>Settings</b><span>Toggles and formatter editor card.</span></button>
+        <button class="preview-card" data-target="diagnostics"><b>Diagnostics</b><span>Health chips, info rows, recent events.</span></button>
+      </div>
+      <div class="system-note"><span class="dot"></span><span>No backend behavior represented here; this is layout and styling only.</span></div>
+    </aside>
+  </main>
+
+  <script>
+    const screenMeta = {
+      chat: { title: 'Chat', status: 'Gemini 1.5 Flash - Ready', composer: true, dot: 'ok' },
+      models: { title: 'Models', status: 'Gemini 1.5 Flash - Active', composer: false, dot: 'ok' },
+      settings: { title: 'Settings', status: 'Preferences synced', composer: false, dot: 'ok' },
+      diagnostics: { title: 'Diagnostics', status: 'Runtime healthy - 1 warning', composer: false, dot: 'warn' }
+    };
+
+    const screens = [...document.querySelectorAll('.screen')];
+    const navItems = [...document.querySelectorAll('.nav-item')];
+    const previewCards = [...document.querySelectorAll('.preview-card')];
+    const appTitle = document.querySelector('#appTitle');
+    const modelStatus = document.querySelector('#modelStatus');
+    const composerWrap = document.querySelector('#composerWrap');
+    const statusDot = document.querySelector('#statusDot');
+
+    function activate(target) {
+      const meta = screenMeta[target] || screenMeta.chat;
+      screens.forEach(screen => screen.classList.toggle('is-active', screen.dataset.screen === target));
+      navItems.forEach(item => item.classList.toggle('is-active', item.dataset.target === target));
+      previewCards.forEach(card => card.classList.toggle('is-active', card.dataset.target === target));
+      appTitle.textContent = meta.title;
+      modelStatus.textContent = meta.status;
+      composerWrap.style.display = meta.composer ? '' : 'none';
+      statusDot.style.background = meta.dot === 'warn' ? 'var(--warning)' : 'var(--success)';
+    }
+
+    [...navItems, ...previewCards].forEach(control => {
+      control.addEventListener('click', () => activate(control.dataset.target));
+    });
+  </script>
+</body>
+</html>

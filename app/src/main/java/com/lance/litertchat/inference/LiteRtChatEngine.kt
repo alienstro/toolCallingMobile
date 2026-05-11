@@ -5,12 +5,18 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import java.io.File
 
 interface ChatEngine {
     suspend fun load(modelFile: File): Result<Unit>
     suspend fun generate(prompt: String): Result<String>
+    suspend fun generateStreaming(
+        prompt: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String>
+    fun cancelGeneration()
     fun release()
 }
 
@@ -80,6 +86,37 @@ class LiteRtChatEngine : ChatEngine {
                 val message = activeConversation.sendMessage(prompt)
                 message.toString()
             }
+        }
+    }
+
+    override suspend fun generateStreaming(
+        prompt: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String> = withContext(Dispatchers.Default) {
+        runCatching {
+            require(prompt.isNotBlank()) { "Prompt must not be blank." }
+
+            val activeConversation = synchronized(lock) {
+                val activeConversation = conversation
+                    ?: error("LiteRT-LM model is not loaded.")
+                if (engine == null || loadedModelPath == null) {
+                    error("LiteRT-LM model is not loaded.")
+                }
+                activeConversation
+            }
+
+            var latest = ""
+            activeConversation.sendMessageAsync(prompt).collect { message ->
+                latest = message.toString()
+                onPartialResponse(latest)
+            }
+            latest
+        }
+    }
+
+    override fun cancelGeneration() {
+        synchronized(lock) {
+            runCatching { conversation?.cancelProcess() }
         }
     }
 
