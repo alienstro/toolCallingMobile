@@ -1,0 +1,437 @@
+package com.lance.litertchat.ui
+
+import com.lance.litertchat.download.ModelDownloadClient
+import com.lance.litertchat.inference.ChatEngine
+import com.lance.litertchat.model.ModelMetadata
+import com.lance.litertchat.model.ModelRepository
+import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TestRule
+import org.junit.rules.TemporaryFolder
+import org.junit.runner.Description
+import org.junit.runners.model.Statement
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class AppViewModelTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
+    @Test
+    fun chatIsDisabledWithoutModel() {
+        assertFalse(AppState(activeModel = null).canChat)
+    }
+
+    @Test
+    fun chatIsEnabledWithInstalledModelWhenIdle() {
+        val state = AppState(activeModel = installedModel())
+
+        assertTrue(state.canChat)
+    }
+
+    @Test
+    fun chatIsDisabledWhileDownloading() {
+        val state = AppState(
+            activeModel = installedModel(),
+            isDownloading = true
+        )
+
+        assertFalse(state.canChat)
+    }
+
+    @Test
+    fun chatIsDisabledWhileLoadingModel() {
+        val state = AppState(
+            activeModel = installedModel(),
+            isLoadingModel = true
+        )
+
+        assertFalse(state.canChat)
+    }
+
+    @Test
+    fun chatIsDisabledWhileGenerating() {
+        val state = AppState(
+            activeModel = installedModel(),
+            isGenerating = true
+        )
+
+        assertFalse(state.canChat)
+    }
+
+    @Test
+    fun viewModelStartsWithRepositoryMetadata() {
+        val repository = ModelRepository(temporaryFolder.root)
+        val metadata = installedModel()
+        repository.saveMetadata(metadata)
+
+        val viewModel = AppViewModel(repository)
+
+        assertEquals(AppState(activeModel = metadata), viewModel.state.value)
+    }
+
+    @Test
+    fun downloadModelDownloadsFileAndSavesMetadata() = runTest(mainDispatcherRule.testDispatcher) {
+        val content = "model bytes".toByteArray()
+        val downloader = FakeDownloader { _, destination, onProgress ->
+            destination.parentFile?.mkdirs()
+            destination.writeBytes(content)
+            onProgress(content.size.toLong(), content.size.toLong())
+        }
+        val repository = ModelRepository(temporaryFolder.root)
+        val viewModel = testViewModel(repository, downloader)
+        val url = "https://huggingface.co/repo/blob/main/model.litertlm?download=true"
+
+        viewModel.downloadModel(url)
+        advanceUntilIdle()
+
+        val activeModel = viewModel.state.value.activeModel
+        val modelFile = File(repository.modelDirectory(), "model.litertlm")
+        assertEquals("model.litertlm", activeModel?.fileName)
+        assertEquals(modelFile.absolutePath, activeModel?.absolutePath)
+        assertEquals("download", activeModel?.source)
+        assertEquals("https://huggingface.co/repo/resolve/main/model.litertlm?download=true", activeModel?.sourceUrl)
+        assertEquals(content.size.toLong(), activeModel?.sizeBytes)
+        assertEquals(content.decodeToString(), modelFile.readText())
+        assertEquals(activeModel, repository.loadMetadata())
+        assertFalse(viewModel.state.value.isDownloading)
+        assertEquals("Download complete", viewModel.state.value.downloadProgressText)
+        assertNull(viewModel.state.value.errorText)
+        assertEquals(listOf(activeModel?.sourceUrl), downloader.requestedUrls)
+    }
+
+    @Test
+    fun deleteModelDeletesRepositoryModelAndClearsState() = runTest(mainDispatcherRule.testDispatcher) {
+        val repository = ModelRepository(temporaryFolder.root)
+        val modelFile = File(repository.modelDirectory(), "model.litertlm")
+        modelFile.writeText("model")
+        repository.saveMetadata(
+            ModelMetadata(
+                fileName = modelFile.name,
+                absolutePath = modelFile.absolutePath,
+                source = "download",
+                sourceUrl = "https://example.com/model.litertlm",
+                sizeBytes = modelFile.length(),
+                installedAtEpochMillis = 1000L
+            )
+        )
+        val viewModel = testViewModel(repository)
+
+        viewModel.deleteModel()
+        advanceUntilIdle()
+
+        assertNull(repository.loadMetadata())
+        assertFalse(modelFile.exists())
+        assertEquals(AppState(), viewModel.state.value)
+    }
+
+    @Test
+    fun duplicateDownloadCallIsIgnoredWhileDownloading() = runTest(mainDispatcherRule.testDispatcher) {
+        val downloader = FakeDownloader { _, destination, _ ->
+            destination.parentFile?.mkdirs()
+            destination.writeText("model bytes")
+        }
+        val repository = ModelRepository(temporaryFolder.root)
+        val viewModel = testViewModel(repository, downloader)
+        val url = "https://example.com/model.litertlm"
+
+        viewModel.downloadModel(url)
+        viewModel.downloadModel(url)
+        advanceUntilIdle()
+
+        assertEquals(listOf(url), downloader.requestedUrls)
+        assertFalse(viewModel.state.value.isDownloading)
+        assertEquals("model.litertlm", viewModel.state.value.activeModel?.fileName)
+    }
+
+    @Test
+    fun deleteModelIsIgnoredWhileDownloading() = runTest(mainDispatcherRule.testDispatcher) {
+        val releaseDownload = CompletableDeferred<Unit>()
+        val downloader = FakeDownloader { _, destination, _ ->
+            releaseDownload.await()
+            destination.parentFile?.mkdirs()
+            destination.writeText("new model")
+        }
+        val repository = ModelRepository(temporaryFolder.root)
+        val existingFile = File(repository.modelDirectory(), "existing.litertlm")
+        existingFile.writeText("existing model")
+        val existingMetadata = ModelMetadata(
+            fileName = existingFile.name,
+            absolutePath = existingFile.absolutePath,
+            source = "download",
+            sourceUrl = "https://example.com/existing.litertlm",
+            sizeBytes = existingFile.length(),
+            installedAtEpochMillis = 1000L
+        )
+        repository.saveMetadata(existingMetadata)
+        val viewModel = testViewModel(repository, downloader)
+
+        viewModel.downloadModel("https://example.com/new-model.litertlm")
+        viewModel.deleteModel()
+
+        assertEquals(existingMetadata, repository.loadMetadata())
+        assertTrue(existingFile.exists())
+
+        releaseDownload.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("new-model.litertlm", viewModel.state.value.activeModel?.fileName)
+    }
+
+    @Test
+    fun downloadFailureClearsProgressAndReportsError() = runTest(mainDispatcherRule.testDispatcher) {
+        val repository = ModelRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = repository,
+            downloader = FakeDownloader { _, _, _ -> error("network unavailable") }
+        )
+
+        viewModel.downloadModel("https://example.com/model.litertlm")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isDownloading)
+        assertNull(viewModel.state.value.downloadProgressText)
+        assertEquals("network unavailable", viewModel.state.value.errorText)
+        assertNull(viewModel.state.value.activeModel)
+    }
+
+    @Test
+    fun downloadModelUsesDecodedFileNameFromUrl() = runTest(mainDispatcherRule.testDispatcher) {
+        val repository = ModelRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = repository,
+            downloader = FakeDownloader { _, destination, _ ->
+                destination.parentFile?.mkdirs()
+                destination.writeText("model")
+            }
+        )
+
+        viewModel.downloadModel("https://example.com/my%20model.litertlm?x=y")
+        advanceUntilIdle()
+
+        assertEquals("my model.litertlm", viewModel.state.value.activeModel?.fileName)
+        assertTrue(File(repository.modelDirectory(), "my model.litertlm").exists())
+    }
+
+    @Test
+    fun sendAddsUserAndAssistantMessages() {
+        val state = AppState()
+            .withUserMessage("Hello")
+            .withAssistantMessage("Hi")
+
+        assertEquals(2, state.messages.size)
+        assertEquals("user", state.messages[0].role)
+        assertEquals("assistant", state.messages[1].role)
+    }
+
+    @Test
+    fun sendMessageRequiresInstalledModel() = runTest(mainDispatcherRule.testDispatcher) {
+        val viewModel = testViewModel(ModelRepository(temporaryFolder.root))
+
+        viewModel.sendMessage("Hello")
+        advanceUntilIdle()
+
+        assertEquals("Install a model before chatting.", viewModel.state.value.errorText)
+        assertTrue(viewModel.state.value.messages.isEmpty())
+    }
+
+    @Test
+    fun sendMessageIgnoresBlankPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel())
+        val viewModel = testViewModel(repository)
+
+        viewModel.sendMessage("   ")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.messages.isEmpty())
+        assertNull(viewModel.state.value.errorText)
+    }
+
+    @Test
+    fun sendMessageLoadsModelAndAddsAssistantResponse() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val metadata = installedModel(path = modelFile.absolutePath)
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(metadata)
+        val engine = FakeChatEngine(response = "Hi there")
+        val viewModel = testViewModel(repository, engine = engine)
+
+        viewModel.sendMessage(" Hello ")
+        advanceUntilIdle()
+
+        assertEquals(listOf(modelFile.absolutePath), engine.loadedPaths)
+        assertEquals(listOf("Hello"), engine.prompts)
+        assertFalse(viewModel.state.value.isGenerating)
+        assertNull(viewModel.state.value.errorText)
+        assertEquals(
+            listOf(ChatMessage("user", "Hello"), ChatMessage("assistant", "Hi there")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun sendMessageStoresGenerationStatsForAssistantResponse() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val metadata = installedModel(path = modelFile.absolutePath)
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(metadata)
+        val engine = FakeChatEngine(response = "One two three four")
+        val times = ArrayDeque(listOf(1_000_000_000L, 3_000_000_000L))
+        val viewModel = testViewModel(
+            repository = repository,
+            engine = engine,
+            nanoTimeProvider = { times.removeFirst() }
+        )
+
+        viewModel.sendMessage("Hello")
+        advanceUntilIdle()
+
+        assertEquals(
+            GenerationStats(
+                elapsedSeconds = 2.0,
+                totalTokens = 4,
+                tokensPerSecond = 2.0
+            ),
+            viewModel.state.value.generationStats
+        )
+    }
+
+    @Test
+    fun sendMessageReportsLoadFailure() = runTest(mainDispatcherRule.testDispatcher) {
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel())
+        val viewModel = testViewModel(
+            repository = repository,
+            engine = FakeChatEngine(loadFailure = IllegalStateException("Model file does not exist."))
+        )
+
+        viewModel.sendMessage("Hello")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isGenerating)
+        assertEquals("Model file does not exist.", viewModel.state.value.errorText)
+        assertEquals(listOf(ChatMessage("user", "Hello")), viewModel.state.value.messages)
+    }
+
+    @Test
+    fun sendMessageReportsGenerationFailure() = runTest(mainDispatcherRule.testDispatcher) {
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel())
+        val viewModel = testViewModel(
+            repository = repository,
+            engine = FakeChatEngine(generateFailure = IllegalStateException("Generation failed"))
+        )
+
+        viewModel.sendMessage("Hello")
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isGenerating)
+        assertEquals("Generation failed", viewModel.state.value.errorText)
+        assertEquals(listOf(ChatMessage("user", "Hello")), viewModel.state.value.messages)
+    }
+
+    private fun installedModel(
+        path: String = "/models/gemma-4-E2B-it.litertlm"
+    ): ModelMetadata =
+        ModelMetadata(
+            fileName = "gemma-4-E2B-it.litertlm",
+            absolutePath = path,
+            source = "local",
+            sourceUrl = null,
+            sizeBytes = 1234L,
+            installedAtEpochMillis = 1000L
+        )
+
+    private fun testViewModel(
+        repository: ModelRepository,
+        downloader: ModelDownloadClient = FakeDownloader { _, destination, _ ->
+            destination.parentFile?.mkdirs()
+            destination.writeText("model")
+        },
+        engine: ChatEngine = FakeChatEngine(),
+        nanoTimeProvider: () -> Long = { 0L }
+    ): AppViewModel =
+        AppViewModel(
+            repository = repository,
+            downloader = downloader,
+            engine = engine,
+            ioDispatcher = mainDispatcherRule.testDispatcher,
+            nanoTimeProvider = nanoTimeProvider
+        )
+}
+
+private class FakeDownloader(
+    private val onDownload: suspend (
+        rawUrl: String,
+        destination: File,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit
+    ) -> Unit
+) : ModelDownloadClient {
+    val requestedUrls = mutableListOf<String>()
+
+    override suspend fun download(
+        rawUrl: String,
+        destination: File,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit
+    ): File {
+        requestedUrls += rawUrl
+        onDownload(rawUrl, destination, onProgress)
+        return destination
+    }
+}
+
+private class FakeChatEngine(
+    private val response: String = "response",
+    private val loadFailure: Throwable? = null,
+    private val generateFailure: Throwable? = null
+) : ChatEngine {
+    val loadedPaths = mutableListOf<String>()
+    val prompts = mutableListOf<String>()
+
+    override suspend fun load(modelFile: File): Result<Unit> {
+        loadedPaths += modelFile.absolutePath
+        return loadFailure?.let { Result.failure(it) } ?: Result.success(Unit)
+    }
+
+    override suspend fun generate(prompt: String): Result<String> {
+        prompts += prompt
+        return generateFailure?.let { Result.failure(it) } ?: Result.success(response)
+    }
+
+    override fun release() = Unit
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class MainDispatcherRule(
+    val testDispatcher: TestDispatcher = StandardTestDispatcher()
+) : TestRule {
+    override fun apply(base: Statement, description: Description): Statement =
+        object : Statement() {
+            override fun evaluate() {
+                Dispatchers.setMain(testDispatcher)
+                try {
+                    base.evaluate()
+                } finally {
+                    Dispatchers.resetMain()
+                }
+            }
+        }
+}
