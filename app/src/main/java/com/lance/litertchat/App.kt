@@ -34,6 +34,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.lance.litertchat.inference.LlamaCppChatEngine
 import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.ui.AppAccent
 import com.lance.litertchat.ui.AppAccentSoft
@@ -51,7 +52,7 @@ import com.lance.litertchat.ui.SettingsScreen
 import com.lance.litertchat.ui.StatusDot
 
 @Composable
-fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
+fun LlamaCppChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
     val context = LocalContext.current.applicationContext
     val state by appViewModel.state.collectAsState()
     val navController = rememberNavController()
@@ -186,10 +187,10 @@ private fun NavGlyph(appRoute: AppRoute, selected: Boolean) {
     Box(
         modifier = Modifier
             .background(
-                if (selected) AppAccentSoft else AppBackground,
+                if (selected) AppAccentSoft else AppSurface,
                 RoundedCornerShape(999.dp)
             )
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
         RouteIcon(appRoute = appRoute, selected = selected)
@@ -257,7 +258,10 @@ private fun rememberAppViewModel(): AppViewModel {
                 require(modelClass.isAssignableFrom(AppViewModel::class.java)) {
                     "Unknown ViewModel class ${modelClass.name}"
                 }
-                return AppViewModel(ModelRepository(context.filesDir)) as T
+                return AppViewModel(
+                    repository = ModelRepository(context.filesDir),
+                    engine = LlamaCppChatEngine()
+                ) as T
             }
         }
     )
