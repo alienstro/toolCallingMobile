@@ -1,6 +1,6 @@
 # Tool Calling Mobile
 
-Native Android Kotlin app for testing a LiteRT-LM chatbot on-device.
+Native Android Kotlin app for testing a llama.cpp GGUF chatbot on-device.
 
 ## Current Features
 
@@ -11,10 +11,10 @@ Native Android Kotlin app for testing a LiteRT-LM chatbot on-device.
   - chat bubbles with AI avatar
   - rounded composer and stats pills
   - card-based Models, Settings, and Diagnostics screens
-- Model manager for `.litertlm` files.
+- Model manager for `.gguf` files.
 - Download a model from a fixed or user-entered HTTPS URL.
 - Converts Hugging Face `/blob/` model URLs to `/resolve/` download URLs.
-- Import a local `.litertlm` file through Android's document picker.
+- Import a local `.gguf` file through Android's document picker.
 - Delete the installed model from app storage.
 - Diagnostics screen showing device, Android version, storage, model path, model size, and last error.
 - Settings screen for prompt formatter management.
@@ -26,7 +26,7 @@ Native Android Kotlin app for testing a LiteRT-LM chatbot on-device.
   - select the active formatter
   - reset the built-in default formatter
 - Active prompt formatter is prepended to model prompts, but the chat transcript only shows the user's original message.
-- Local LiteRT-LM chat flow using the installed model.
+- Local llama.cpp chat flow using the installed GGUF model.
 - Assistant responses render common markdown in a mobile-friendly format:
   - headings
   - bold text
@@ -42,12 +42,27 @@ Native Android Kotlin app for testing a LiteRT-LM chatbot on-device.
   - estimated output tokens
   - estimated tokens per second
 
+## Native llama.cpp Runtime
+
+The app uses a first-party JNI bridge to native `llama.cpp` for GGUF inference.
+
+Current runtime scope:
+
+- CPU-only
+- `arm64-v8a` APK packaging
+- Default context length: `1024`
+- Default threads: `4`
+- Default batch size: `512`
+- Default max response tokens: `256`
+
+MTP, TurboQuant, OpenCL, and Hexagon/NPU acceleration are not enabled in this first native pass. They require newer upstream llama.cpp support or experimental forks and should be tested after the stable CPU runtime is working on-device.
+
 ## Notes
 
-- Token count is currently estimated from the assistant text because the current LiteRT wrapper returns generated text, not token metadata.
+- Token count is currently estimated from the assistant text because the current llama.cpp wrapper returns generated text, not token metadata.
 - Response time measures the latest assistant response cycle, not the whole chat history. It includes model load time when the model is not already loaded.
-- Stop behavior cancels the app coroutine, calls LiteRT `cancelProcess()`, and releases the LiteRT engine. If a native call is blocking, stopping may take effect after that native call returns.
-- Hugging Face model search is planned later. For now, paste a direct `.litertlm` URL.
+- Stop behavior cancels the app coroutine, requests llama.cpp generation abort, and releases native resources. If a native call is blocking, stopping may take effect after that native call returns.
+- Hugging Face model search is planned later. For now, paste a direct `.gguf` URL.
 - Downloaded/imported models and prompt formatters are stored in app-private storage. Android deletes this app-private data when the app is uninstalled.
 
 ## Test On Phone
@@ -70,10 +85,10 @@ Install the debug build:
 .\gradlew.bat :app:installDebug
 ```
 
-Open `LiteRT Chat` on the phone and test:
+Open `Llama.cpp Chat` on the phone and test:
 
-- Download a `.litertlm` model.
-- Import a `.litertlm` model.
+- Download a `.gguf` model.
+- Import a `.gguf` model.
 - Delete the installed model.
 - Send a chat prompt.
 - Tap `Processing` during generation to stop the response.
