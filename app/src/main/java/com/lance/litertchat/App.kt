@@ -112,7 +112,10 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                             state = state,
                             contentPadding = contentPadding,
                             onSend = appViewModel::sendMessage,
-                            onStop = appViewModel::stopGeneration
+                            onStop = appViewModel::stopGeneration,
+                            onNewChat = appViewModel::startNewChat,
+                            onSelectChat = appViewModel::selectChatSession,
+                            onDeleteChat = appViewModel::deleteChatSession
                         )
                     }
                     composable(AppRoute.Diagnostics.route) {
@@ -174,13 +177,6 @@ private fun AppTopBar(route: AppRoute, state: com.lance.litertchat.ui.AppState) 
                 StatusDot(tone = tone)
                 Text(text = status, color = AppMuted, maxLines = 1)
             }
-        }
-        Box(
-            modifier = Modifier
-                .background(AppAccentSoft, RoundedCornerShape(999.dp))
-                .padding(horizontal = 10.dp, vertical = 7.dp)
-        ) {
-            Text("Sync", color = AppAccent, fontWeight = FontWeight.Bold)
         }
     }
 }

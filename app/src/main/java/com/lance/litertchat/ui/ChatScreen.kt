@@ -12,16 +12,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +46,10 @@ fun ChatScreen(
     state: AppState,
     contentPadding: PaddingValues = PaddingValues(),
     onSend: (String) -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onNewChat: () -> Unit,
+    onSelectChat: (String) -> Unit,
+    onDeleteChat: (String) -> Unit
 ) {
     var message by rememberSaveable { mutableStateOf("") }
 
@@ -53,6 +59,12 @@ fun ChatScreen(
             .padding(contentPadding)
             .background(AppBackground)
     ) {
+        ChatHistoryBar(
+            state = state,
+            onNewChat = onNewChat,
+            onSelectChat = onSelectChat,
+            onDeleteChat = onDeleteChat
+        )
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -88,6 +100,150 @@ fun ChatScreen(
             },
             onStop = onStop
         )
+    }
+}
+
+@Composable
+private fun ChatHistoryBar(
+    state: AppState,
+    onNewChat: () -> Unit,
+    onSelectChat: (String) -> Unit,
+    onDeleteChat: (String) -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val sortedSessions = state.chatSessions.sortedByDescending { it.updatedAtEpochMillis }
+    val currentTitle = state.activeChatSession?.title ?: "No chat selected"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppSurface)
+            .border(1.dp, AppBorder)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("History", color = AppText, fontWeight = FontWeight.Bold)
+            Button(
+                onClick = {
+                    expanded = false
+                    onNewChat()
+                },
+                enabled = !state.isGenerating,
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AppAccent,
+                    contentColor = Color.White,
+                    disabledContainerColor = Color(0xFFE3E5EB),
+                    disabledContentColor = AppMuted
+                )
+            ) {
+                Text("New Chat", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { expanded = true },
+                enabled = !state.isGenerating && sortedSessions.isNotEmpty(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AppBackground,
+                    contentColor = AppText,
+                    disabledContainerColor = Color(0xFFE3E5EB),
+                    disabledContentColor = AppMuted
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(currentTitle, maxLines = 1, fontWeight = FontWeight.SemiBold)
+                    Text("v", color = AppMuted, fontWeight = FontWeight.Bold)
+                }
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .heightIn(max = 232.dp)
+                    .background(AppSurface)
+            ) {
+                sortedSessions.forEach { session ->
+                    ChatHistoryMenuItem(
+                        title = session.title,
+                        selected = session.id == state.activeChatSessionId,
+                        onSelect = {
+                            expanded = false
+                            onSelectChat(session.id)
+                        },
+                        onDelete = {
+                            onDeleteChat(session.id)
+                            if (sortedSessions.size <= 1) {
+                                expanded = false
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatHistoryMenuItem(
+    title: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) AppAccentSoft else AppBackground,
+                RoundedCornerShape(8.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) AppAccent else AppBorder,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextButton(
+            onClick = onSelect,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                title,
+                maxLines = 1,
+                color = if (selected) AppAccent else AppText,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Button(
+            onClick = onDelete,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.size(width = 86.dp, height = 42.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFFDECEC),
+                contentColor = AppDanger,
+                disabledContainerColor = Color(0xFFE3E5EB),
+                disabledContentColor = AppMuted
+            )
+        ) {
+            Text("Delete", fontWeight = FontWeight.Bold)
+        }
     }
 }
 

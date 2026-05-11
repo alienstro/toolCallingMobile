@@ -14,10 +14,14 @@ import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.prompt.PromptFormatter
 import com.lance.litertchat.prompt.PromptFormatterRepository
 import com.lance.litertchat.settings.AppSettingsRepository
+import com.lance.litertchat.ui.chat.ChatHistoryRepository
+import com.lance.litertchat.ui.chat.ChatHistoryState
+import com.lance.litertchat.ui.chat.ChatSession
 import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +48,8 @@ data class GenerationStats(
 data class AppState(
     val activeModel: ModelMetadata? = null,
     val messages: List<ChatMessage> = emptyList(),
+    val chatSessions: List<ChatSession> = emptyList(),
+    val activeChatSessionId: String? = null,
     val isDownloading: Boolean = false,
     val isLoadingModel: Boolean = false,
     val isGenerating: Boolean = false,
@@ -57,6 +63,9 @@ data class AppState(
     val canChat: Boolean
         get() = activeModel != null && !isDownloading && !isLoadingModel && !isGenerating
 
+    val activeChatSession: ChatSession?
+        get() = chatSessions.firstOrNull { it.id == activeChatSessionId }
+
     fun withUserMessage(content: String): AppState =
         copy(messages = messages + ChatMessage(role = "user", content = content))
 
@@ -68,14 +77,19 @@ class AppViewModel(
     private val repository: ModelRepository,
     private val promptFormatterRepository: PromptFormatterRepository = PromptFormatterRepository(repository.rootDir),
     private val appSettingsRepository: AppSettingsRepository = AppSettingsRepository(repository.rootDir),
+    private val chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(repository.rootDir),
     private val downloader: ModelDownloadClient = ModelDownloader(),
     private val engine: ChatEngine = LiteRtChatEngine(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nanoTimeProvider: () -> Long = System::nanoTime
 ) : ViewModel() {
+    private val initialChatHistoryState = chatHistoryRepository.loadState()
     private val mutableState = MutableStateFlow(
         AppState(
             activeModel = repository.loadMetadata(),
+            messages = initialChatHistoryState.activeSession?.messages.orEmpty(),
+            chatSessions = initialChatHistoryState.sessions,
+            activeChatSessionId = initialChatHistoryState.activeSessionId,
             promptFormatters = promptFormatterRepository.loadState().formatters,
             activePromptFormatterId = promptFormatterRepository.loadState().activeFormatterId,
             streamResponsesEnabled = appSettingsRepository.load().streamResponsesEnabled
@@ -213,8 +227,64 @@ class AppViewModel(
             withContext(ioDispatcher) {
                 repository.deleteInstalledModel()
             }
-            mutableState.value = AppState()
+            mutableState.value = AppState(
+                messages = mutableState.value.messages,
+                chatSessions = mutableState.value.chatSessions,
+                activeChatSessionId = mutableState.value.activeChatSessionId
+            )
         }
+    }
+
+    fun startNewChat() {
+        if (mutableState.value.isGenerating) return
+
+        val session = ChatSession(
+            id = UUID.randomUUID().toString(),
+            title = NEW_CHAT_TITLE,
+            messages = emptyList(),
+            updatedAtEpochMillis = System.currentTimeMillis()
+        )
+        mutableState.value = mutableState.value.copy(
+            messages = emptyList(),
+            chatSessions = mutableState.value.chatSessions + session,
+            activeChatSessionId = session.id,
+            generationStats = null,
+            errorText = null
+        )
+        persistChatHistory()
+    }
+
+    fun selectChatSession(id: String?) {
+        if (id == null || mutableState.value.isGenerating) return
+        val session = mutableState.value.chatSessions.firstOrNull { it.id == id } ?: return
+        mutableState.value = mutableState.value.copy(
+            activeChatSessionId = session.id,
+            messages = session.messages,
+            generationStats = null,
+            errorText = null
+        )
+        persistChatHistory()
+    }
+
+    fun deleteChatSession(id: String?) {
+        if (id == null || mutableState.value.isGenerating) return
+
+        val state = mutableState.value
+        val remainingSessions = state.chatSessions.filterNot { it.id == id }
+        val nextActiveSession = if (state.activeChatSessionId == id) {
+            remainingSessions.maxByOrNull { it.updatedAtEpochMillis }
+        } else {
+            state.activeChatSession
+        }
+
+        mutableState.value = state.copy(
+            chatSessions = remainingSessions,
+            activeChatSessionId = nextActiveSession?.id,
+            messages = nextActiveSession?.messages.orEmpty(),
+            generationStats = null,
+            errorText = null
+        )
+        persistChatHistory()
     }
 
     fun sendMessage(prompt: String) {
@@ -232,9 +302,13 @@ class AppViewModel(
         if (!currentState.canChat) return
 
         generationJob = viewModelScope.launch {
-            mutableState.update {
-                it.copy(
-                    messages = it.messages + ChatMessage("user", cleanedPrompt) + loadingAssistantMessage(),
+            updateChatState {
+                val stateWithSession = it.ensureActiveChatSession(cleanedPrompt)
+                val nextMessages = stateWithSession.messages +
+                    ChatMessage("user", cleanedPrompt) +
+                    loadingAssistantMessage()
+
+                stateWithSession.withActiveChatMessages(nextMessages).copy(
                     isGenerating = true,
                     errorText = null,
                     generationStats = null
@@ -257,8 +331,9 @@ class AppViewModel(
                                     )
                                     streamedText.clear()
                                     streamedText.append(displayText)
-                                    mutableState.update {
-                                        it.updateLoadingAssistant(displayText)
+                                    updateChatState {
+                                        val updated = it.updateLoadingAssistant(displayText)
+                                        updated.withActiveChatMessages(updated.messages)
                                     }
                                 }
                             }
@@ -281,8 +356,9 @@ class AppViewModel(
                                 } else {
                                     0.0
                                 }
-                                mutableState.update {
-                                    it.replaceLoadingAssistant(finalResponse).copy(
+                                updateChatState {
+                                    val updated = it.replaceLoadingAssistant(finalResponse)
+                                    updated.withActiveChatMessages(updated.messages).copy(
                                         isGenerating = false,
                                         generationStats = GenerationStats(
                                             elapsedSeconds = elapsedSeconds,
@@ -294,8 +370,9 @@ class AppViewModel(
                             },
                             onFailure = { error ->
                                 if (!isActive) return@fold
-                                mutableState.update {
-                                    it.withoutLoadingAssistant().copy(
+                                updateChatState {
+                                    val updated = it.withoutLoadingAssistant()
+                                    updated.withActiveChatMessages(updated.messages).copy(
                                         isGenerating = false,
                                         errorText = error.message ?: "Generation failed"
                                     )
@@ -308,8 +385,9 @@ class AppViewModel(
                 },
                 onFailure = { error ->
                     if (!isActive) return@fold
-                    mutableState.update {
-                        it.withoutLoadingAssistant().copy(
+                    updateChatState {
+                        val updated = it.withoutLoadingAssistant()
+                        updated.withActiveChatMessages(updated.messages).copy(
                             isGenerating = false,
                             errorText = error.message ?: "Model load failed"
                         )
@@ -327,8 +405,9 @@ class AppViewModel(
         engine.cancelGeneration()
         engine.release()
         generationJob = null
-        mutableState.update {
-            it.withoutLoadingAssistant().copy(
+        updateChatState {
+            val updated = it.withoutLoadingAssistant()
+            updated.withActiveChatMessages(updated.messages).copy(
                 isGenerating = false,
                 errorText = "Generation stopped."
             )
@@ -408,8 +487,83 @@ class AppViewModel(
         }
     }
 
+    private fun updateChatState(transform: (AppState) -> AppState) {
+        mutableState.value = transform(mutableState.value)
+        persistChatHistory()
+    }
+
+    private fun persistChatHistory() {
+        val state = mutableState.value
+        chatHistoryRepository.saveState(
+            ChatHistoryState(
+                sessions = state.chatSessions,
+                activeSessionId = state.activeChatSessionId
+            )
+        )
+    }
+
+    private fun AppState.ensureActiveChatSession(firstPrompt: String): AppState {
+        val now = System.currentTimeMillis()
+        val activeSession = activeChatSession
+        if (activeSession != null) {
+            val shouldTitleFromPrompt = activeSession.messages.isEmpty() && activeSession.title == NEW_CHAT_TITLE
+            val updatedSession = activeSession.copy(
+                title = if (shouldTitleFromPrompt) titleFromPrompt(firstPrompt) else activeSession.title,
+                updatedAtEpochMillis = now
+            )
+            return copy(
+                chatSessions = chatSessions.map { session ->
+                    if (session.id == activeSession.id) updatedSession else session
+                },
+                activeChatSessionId = updatedSession.id
+            )
+        }
+
+        val session = ChatSession(
+            id = UUID.randomUUID().toString(),
+            title = titleFromPrompt(firstPrompt),
+            messages = emptyList(),
+            updatedAtEpochMillis = now
+        )
+        return copy(
+            chatSessions = chatSessions + session,
+            activeChatSessionId = session.id,
+            messages = emptyList()
+        )
+    }
+
+    private fun AppState.withActiveChatMessages(nextMessages: List<ChatMessage>): AppState {
+        val activeId = activeChatSessionId ?: return copy(messages = nextMessages)
+        val now = System.currentTimeMillis()
+        return copy(
+            messages = nextMessages,
+            chatSessions = chatSessions.map { session ->
+                if (session.id == activeId) {
+                    session.copy(
+                        messages = nextMessages,
+                        updatedAtEpochMillis = now
+                    )
+                } else {
+                    session
+                }
+            }
+        )
+    }
+
+    private fun titleFromPrompt(prompt: String): String {
+        val compact = prompt.trim().replace(Regex("\\s+"), " ")
+        if (compact.isBlank()) return NEW_CHAT_TITLE
+        return if (compact.length <= MAX_CHAT_TITLE_LENGTH) {
+            compact
+        } else {
+            compact.take(MAX_CHAT_TITLE_LENGTH - 3).trimEnd() + "..."
+        }
+    }
+
     private companion object {
         const val NANOS_PER_SECOND = 1_000_000_000.0
+        const val NEW_CHAT_TITLE = "New chat"
+        const val MAX_CHAT_TITLE_LENGTH = 48
     }
 }
 

@@ -6,6 +6,7 @@ import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.prompt.PromptFormatterRepository
 import com.lance.litertchat.settings.AppSettingsRepository
+import com.lance.litertchat.ui.chat.ChatHistoryRepository
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -243,6 +244,117 @@ class AppViewModelTest {
         assertEquals(2, state.messages.size)
         assertEquals("user", state.messages[0].role)
         assertEquals("assistant", state.messages[1].role)
+    }
+
+    @Test
+    fun sendMessageTitlesNewChatFromFirstUserPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val viewModel = testViewModel(repository, engine = FakeChatEngine(response = "Hi"))
+
+        viewModel.sendMessage(" Explain how LiteRT chat state works on mobile ")
+        advanceUntilIdle()
+
+        assertEquals("Explain how LiteRT chat state works on mobile", viewModel.state.value.activeChatSession?.title)
+        assertEquals(
+            viewModel.state.value.messages,
+            viewModel.state.value.activeChatSession?.messages
+        )
+    }
+
+    @Test
+    fun newChatCreatesBlankActiveSessionAndKeepsOldChatInHistory() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val viewModel = testViewModel(repository, engine = FakeChatEngine(response = "Done"))
+
+        viewModel.sendMessage("First question")
+        advanceUntilIdle()
+        val oldSession = viewModel.state.value.activeChatSession
+        viewModel.startNewChat()
+
+        assertTrue(viewModel.state.value.messages.isEmpty())
+        assertEquals("New chat", viewModel.state.value.activeChatSession?.title)
+        assertTrue(viewModel.state.value.chatSessions.any { it.id == oldSession?.id && it.title == "First question" })
+        assertTrue(viewModel.state.value.activeChatSessionId != oldSession?.id)
+    }
+
+    @Test
+    fun selectChatSessionRestoresOldMessages() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val viewModel = testViewModel(repository, engine = FakeChatEngine(response = "First answer"))
+
+        viewModel.sendMessage("First question")
+        advanceUntilIdle()
+        val firstSessionId = viewModel.state.value.activeChatSessionId
+        viewModel.startNewChat()
+        viewModel.sendMessage("Second question")
+        advanceUntilIdle()
+
+        viewModel.selectChatSession(firstSessionId)
+
+        assertEquals("First question", viewModel.state.value.activeChatSession?.title)
+        assertEquals(
+            listOf(ChatMessage("user", "First question"), ChatMessage("assistant", "First answer")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun deleteChatSessionRemovesItAndSelectsAnotherSession() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val viewModel = testViewModel(repository, engine = FakeChatEngine(response = "Done"))
+
+        viewModel.sendMessage("First question")
+        advanceUntilIdle()
+        val firstSessionId = viewModel.state.value.activeChatSessionId
+        viewModel.startNewChat()
+        viewModel.sendMessage("Second question")
+        advanceUntilIdle()
+
+        viewModel.deleteChatSession(firstSessionId)
+
+        assertTrue(viewModel.state.value.chatSessions.none { it.id == firstSessionId })
+        assertEquals("Second question", viewModel.state.value.activeChatSession?.title)
+        assertEquals(listOf(ChatMessage("user", "Second question"), ChatMessage("assistant", "Done")), viewModel.state.value.messages)
+    }
+
+    @Test
+    fun chatHistoryPersistsAcrossViewModelInstances() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val chatHistoryRepository = ChatHistoryRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = repository,
+            chatHistoryRepository = chatHistoryRepository,
+            engine = FakeChatEngine(response = "Saved answer")
+        )
+
+        viewModel.sendMessage("Persist this chat")
+        advanceUntilIdle()
+        val restored = testViewModel(
+            repository = repository,
+            chatHistoryRepository = chatHistoryRepository,
+            engine = FakeChatEngine(response = "Other")
+        )
+
+        assertEquals("Persist this chat", restored.state.value.activeChatSession?.title)
+        assertEquals(
+            listOf(ChatMessage("user", "Persist this chat"), ChatMessage("assistant", "Saved answer")),
+            restored.state.value.messages
+        )
     }
 
     @Test
@@ -591,6 +703,7 @@ class AppViewModelTest {
         },
         formatterRepository: PromptFormatterRepository = PromptFormatterRepository(temporaryFolder.root),
         appSettingsRepository: AppSettingsRepository = AppSettingsRepository(temporaryFolder.root),
+        chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(temporaryFolder.root),
         engine: ChatEngine = FakeChatEngine(),
         nanoTimeProvider: () -> Long = { 0L }
     ): AppViewModel =
@@ -598,6 +711,7 @@ class AppViewModelTest {
             repository = repository,
             promptFormatterRepository = formatterRepository,
             appSettingsRepository = appSettingsRepository,
+            chatHistoryRepository = chatHistoryRepository,
             downloader = downloader,
             engine = engine,
             ioDispatcher = mainDispatcherRule.testDispatcher,
