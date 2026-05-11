@@ -2,29 +2,32 @@ package com.lance.litertchat.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,12 +36,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import java.util.Locale
 
 @Composable
@@ -146,7 +155,9 @@ private fun ChatHistoryBar(
             }
         }
 
-        Box(modifier = Modifier.fillMaxWidth()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val dropdownWidth = maxWidth
+            val popupOffsetY = with(LocalDensity.current) { 54.dp.roundToPx() }
             Button(
                 onClick = { expanded = true },
                 enabled = !state.isGenerating && sortedSessions.isNotEmpty(),
@@ -157,7 +168,9 @@ private fun ChatHistoryBar(
                     disabledContainerColor = Color(0xFFE3E5EB),
                     disabledContentColor = AppMuted
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -168,29 +181,44 @@ private fun ChatHistoryBar(
                     Text("v", color = AppMuted, fontWeight = FontWeight.Bold)
                 }
             }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .heightIn(max = 232.dp)
-                    .background(AppSurface)
-            ) {
-                sortedSessions.forEach { session ->
-                    ChatHistoryMenuItem(
-                        title = session.title,
-                        selected = session.id == state.activeChatSessionId,
-                        onSelect = {
-                            expanded = false
-                            onSelectChat(session.id)
-                        },
-                        onDelete = {
-                            onDeleteChat(session.id)
-                            if (sortedSessions.size <= 1) {
-                                expanded = false
+
+            if (expanded) {
+                Popup(
+                    alignment = Alignment.TopStart,
+                    offset = IntOffset(0, popupOffsetY),
+                    onDismissRequest = { expanded = false },
+                    properties = PopupProperties(focusable = true)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(dropdownWidth)
+                            .background(AppSurface, RoundedCornerShape(12.dp))
+                            .border(1.dp, AppBorder, RoundedCornerShape(12.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 256.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            sortedSessions.forEach { session ->
+                                ChatHistoryMenuItem(
+                                    title = session.title,
+                                    selected = session.id == state.activeChatSessionId,
+                                    onSelect = {
+                                        expanded = false
+                                        onSelectChat(session.id)
+                                    },
+                                    onDelete = {
+                                        onDeleteChat(session.id)
+                                        if (sortedSessions.size <= 1) {
+                                            expanded = false
+                                        }
+                                    }
+                                )
                             }
                         }
-                    )
+                    }
                 }
             }
         }
@@ -207,34 +235,41 @@ private fun ChatHistoryMenuItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                if (selected) AppAccentSoft else AppBackground,
-                RoundedCornerShape(8.dp)
-            )
+            .height(64.dp)
+            .background(if (selected) AppAccentSoft else Color(0xFFF8FAFD))
             .border(
-                width = 1.dp,
-                color = if (selected) AppAccent else AppBorder,
-                shape = RoundedCornerShape(8.dp)
+                width = 0.dp,
+                color = Color.Transparent
             )
-            .padding(6.dp),
+            .padding(start = 18.dp, end = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        TextButton(
+        Button(
             onClick = onSelect,
-            modifier = Modifier.weight(1f)
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent,
+                contentColor = if (selected) AppAccent else AppText,
+                disabledContainerColor = Color.Transparent,
+                disabledContentColor = AppMuted
+            )
         ) {
             Text(
                 title,
                 maxLines = 1,
-                color = if (selected) AppAccent else AppText,
                 fontWeight = FontWeight.SemiBold
             )
         }
         Button(
             onClick = onDelete,
-            shape = RoundedCornerShape(8.dp),
-            modifier = Modifier.size(width = 86.dp, height = 42.dp),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.size(42.dp),
+            contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFFFDECEC),
                 contentColor = AppDanger,
@@ -242,8 +277,28 @@ private fun ChatHistoryMenuItem(
                 disabledContentColor = AppMuted
             )
         ) {
-            Text("Delete", fontWeight = FontWeight.Bold)
+            TrashIcon(color = AppDanger)
         }
+    }
+}
+
+@Composable
+private fun TrashIcon(color: Color) {
+    Canvas(modifier = Modifier.size(18.dp)) {
+        val stroke = Stroke(width = 2.2f, cap = StrokeCap.Round)
+        val w = size.width
+        val h = size.height
+
+        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.24f, h * 0.30f), end = androidx.compose.ui.geometry.Offset(w * 0.76f, h * 0.30f), strokeWidth = 2.2f, cap = StrokeCap.Round)
+        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.40f, h * 0.18f), end = androidx.compose.ui.geometry.Offset(w * 0.60f, h * 0.18f), strokeWidth = 2.2f, cap = StrokeCap.Round)
+        drawRoundRect(
+            color = color,
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.36f),
+            size = androidx.compose.ui.geometry.Size(w * 0.40f, h * 0.48f),
+            style = stroke
+        )
+        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.43f, h * 0.46f), end = androidx.compose.ui.geometry.Offset(w * 0.43f, h * 0.74f), strokeWidth = 1.8f, cap = StrokeCap.Round)
+        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.57f, h * 0.46f), end = androidx.compose.ui.geometry.Offset(w * 0.57f, h * 0.74f), strokeWidth = 1.8f, cap = StrokeCap.Round)
     }
 }
 
