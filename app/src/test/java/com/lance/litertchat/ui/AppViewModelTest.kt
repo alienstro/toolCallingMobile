@@ -617,7 +617,7 @@ class AppViewModelTest {
         )
         assertEquals(1, engine.releaseCount)
         assertEquals(
-            "GPU + MTP failed: GPU unavailable. Fell back to CPU.",
+            "GPU + MTP is not supported for this model/device, so the app fell back to CPU. Details: GPU unavailable",
             viewModel.state.value.runtimeStatus.fallbackReason
         )
         viewModel.setGemmaMtpEnabled(false)

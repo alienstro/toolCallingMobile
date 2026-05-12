@@ -627,7 +627,10 @@ class AppViewModel(
         val fallback = InferenceRuntimeConfig.defaultCpu
         val fallbackLoad = engine.load(modelFile, fallback)
         if (fallbackLoad.isSuccess) {
-            val reason = "${requested.label} failed: ${firstError?.message ?: "Model load failed"}. Fell back to CPU."
+            val reason = gpuFallbackReason(
+                requested = requested,
+                detail = firstError?.message ?: "Model load failed"
+            )
             mutableState.update {
                 it.copy(
                     runtimeStatus = InferenceRuntimeStatus(
@@ -648,6 +651,9 @@ class AppViewModel(
             )
         )
     }
+
+    private fun gpuFallbackReason(requested: InferenceRuntimeConfig, detail: String): String =
+        "${requested.label} is not supported for this model/device, so the app fell back to CPU. Details: $detail"
 
     private fun updateChatState(transform: (AppState) -> AppState) {
         mutableState.value = transform(mutableState.value)
