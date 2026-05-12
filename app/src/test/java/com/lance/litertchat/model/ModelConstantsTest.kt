@@ -16,6 +16,14 @@ class ModelConstantsTest {
     }
 
     @Test
+    fun gemma4E4bMtpModelUrlMatchesLiteRtLmResolveUrl() {
+        assertEquals(
+            "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm",
+            ModelConstants.GEMMA_4_E4B_MTP_MODEL_URL
+        )
+    }
+
+    @Test
     fun modelExtensionIsLiteRtLm() {
         assertEquals(".litertlm", ModelConstants.MODEL_EXTENSION)
     }
