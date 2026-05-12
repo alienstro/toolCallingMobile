@@ -46,7 +46,7 @@ fun DiagnosticsScreen(
             AppCard {
                 InfoRow("Device", "${info.manufacturer} ${info.model}")
                 InfoRow("Android", "${info.androidVersion} API ${info.apiLevel}")
-                InfoRow("Storage", "${info.availableStorageBytes} bytes available")
+                InfoRow("Storage", "${formatByteSize(info.availableStorageBytes)} available")
             }
         }
         item {
@@ -54,7 +54,7 @@ fun DiagnosticsScreen(
             AppCard {
                 InfoRow("File", state.activeModel?.fileName ?: "None")
                 InfoRow("Path", state.activeModel?.absolutePath ?: "None")
-                InfoRow("Size", "${state.activeModel?.sizeBytes ?: 0} bytes")
+                InfoRow("Size", formatByteSize(state.activeModel?.sizeBytes ?: 0L))
                 InfoRow("Source", state.activeModel?.source ?: "None")
             }
         }

@@ -123,9 +123,9 @@ class AppViewModel(
                 }
 
                 downloader.download(normalizedUrl, destination) { downloaded, total ->
-                    val totalText = total?.let { "/$it" }.orEmpty()
+                    val totalText = total?.let { "/${formatByteSize(it)}" }.orEmpty()
                     mutableState.update {
-                        it.copy(downloadProgressText = "$downloaded$totalText bytes")
+                        it.copy(downloadProgressText = "${formatByteSize(downloaded)}$totalText")
                     }
                 }
 
