@@ -232,10 +232,13 @@ class LiteRtChatEngine : ChatEngine {
     private fun promptImageContents(prompt: String, imagePath: String): Contents {
         require(prompt.isNotBlank()) { "Prompt must not be blank." }
         require(imagePath.isNotBlank()) { "Image path must not be blank." }
-        require(File(imagePath).exists()) { "Image file does not exist." }
+        val imageFile = File(imagePath)
+        require(imageFile.exists() && imageFile.isFile) { "Image file does not exist." }
+        val imageBytes = imageFile.readBytes()
+        require(imageBytes.isNotEmpty()) { "Image file is empty." }
         return Contents.of(
             Content.Text(prompt),
-            Content.ImageFile(imagePath)
+            Content.ImageBytes(imageBytes)
         )
     }
 

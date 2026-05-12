@@ -1,6 +1,7 @@
 package com.lance.litertchat.inference
 
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
@@ -178,6 +179,26 @@ class LiteRtChatEngineConfigTest {
         assertTrue(generation.await().isSuccess)
     }
 
+    @Test
+    fun generateWithImageSendsImageBytesInsteadOfFilePath() = runTest {
+        val conversation = CapturingLiteRtConversationHandle()
+        val engine = LiteRtChatEngine(FakeLiteRtEngineFactory(conversation))
+        val imageFile = temporaryFolder.newFile("photo.jpg").also {
+            it.writeBytes(byteArrayOf(1, 2, 3))
+        }
+        assertTrue(engine.load(temporaryModelFile()).isSuccess)
+
+        val result = engine.generateWithImage("Describe this", imageFile.absolutePath)
+
+        assertTrue(result.isSuccess)
+        val imageContent = conversation.lastContents
+            ?.contents
+            ?.filterIsInstance<Content.ImageBytes>()
+            ?.singleOrNull()
+        assertTrue("image should be passed as bytes", imageContent != null)
+        assertTrue(imageContent!!.bytes.contentEquals(byteArrayOf(1, 2, 3)))
+    }
+
     private fun temporaryModelFile(): File =
         temporaryFolder.newFile("model-${System.nanoTime()}.litertlm").also {
             it.writeText("model")
@@ -236,6 +257,27 @@ private class BlockingLiteRtConversationHandle : LiteRtConversationHandle {
     }
 
     override fun sendMessage(contents: Contents): Any = sendMessage("image")
+
+    override fun sendMessageAsync(prompt: String): Flow<Any?> =
+        flowOf(sendMessage(prompt))
+
+    override fun sendMessageAsync(contents: Contents): Flow<Any?> =
+        flowOf(sendMessage(contents))
+
+    override fun cancelProcess() = Unit
+
+    override fun close() = Unit
+}
+
+private class CapturingLiteRtConversationHandle : LiteRtConversationHandle {
+    var lastContents: Contents? = null
+
+    override fun sendMessage(prompt: String): Any = "Done"
+
+    override fun sendMessage(contents: Contents): Any {
+        lastContents = contents
+        return "Done"
+    }
 
     override fun sendMessageAsync(prompt: String): Flow<Any?> =
         flowOf(sendMessage(prompt))
