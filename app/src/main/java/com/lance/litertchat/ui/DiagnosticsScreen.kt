@@ -61,6 +61,9 @@ fun DiagnosticsScreen(
         item {
             SectionTitle("Runtime")
             AppCard {
+                DiagnosticRow("Requested runtime", state.runtimeStatus.requested.label)
+                DiagnosticRow("Active runtime", state.runtimeStatus.active.label)
+                DiagnosticRow("Runtime fallback", state.runtimeStatus.fallbackReason ?: "None")
                 InfoRow("Streaming", if (state.streamResponsesEnabled) "Enabled" else "Disabled")
                 InfoRow("Messages", state.messages.size.toString())
                 InfoRow("Last error", state.errorText ?: "None")
@@ -73,4 +76,9 @@ fun DiagnosticsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    InfoRow(label, value)
 }

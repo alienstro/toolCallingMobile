@@ -35,7 +35,9 @@ fun SettingsScreen(
     onDeleteFormatter: (String) -> Unit,
     onSelectFormatter: (String) -> Unit,
     onResetDefaultFormatter: () -> Unit,
-    onStreamResponsesChanged: (Boolean) -> Unit
+    onStreamResponsesChanged: (Boolean) -> Unit,
+    onGpuBackendChanged: (Boolean) -> Unit,
+    onGemmaMtpChanged: (Boolean) -> Unit
 ) {
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -56,6 +58,19 @@ fun SettingsScreen(
                     help = "Show assistant text as it arrives.",
                     checked = state.streamResponsesEnabled,
                     onCheckedChange = onStreamResponsesChanged
+                )
+                SettingSwitchRow(
+                    title = "Use GPU backend",
+                    help = "Run LiteRT-LM with the Android GPU backend when available.",
+                    checked = state.gpuBackendEnabled,
+                    onCheckedChange = onGpuBackendChanged
+                )
+                SettingSwitchRow(
+                    title = "Enable Gemma 4 MTP",
+                    help = "Use speculative decoding for MTP-capable Gemma 4 LiteRT-LM models.",
+                    checked = state.gemmaMtpEnabled,
+                    enabled = state.gpuBackendEnabled,
+                    onCheckedChange = onGemmaMtpChanged
                 )
             }
         }
@@ -175,6 +190,7 @@ private fun SettingSwitchRow(
     title: String,
     help: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
@@ -185,6 +201,6 @@ private fun SettingSwitchRow(
             Text(title, color = AppText, fontWeight = FontWeight.Bold)
             Text(help, color = AppMuted)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }

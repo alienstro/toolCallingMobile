@@ -130,7 +130,9 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                             onDeleteFormatter = appViewModel::deletePromptFormatter,
                             onSelectFormatter = appViewModel::selectPromptFormatter,
                             onResetDefaultFormatter = appViewModel::resetDefaultPromptFormatter,
-                            onStreamResponsesChanged = appViewModel::setStreamResponsesEnabled
+                            onStreamResponsesChanged = appViewModel::setStreamResponsesEnabled,
+                            onGpuBackendChanged = appViewModel::setGpuBackendEnabled,
+                            onGemmaMtpChanged = appViewModel::setGemmaMtpEnabled
                         )
                     }
                 }
