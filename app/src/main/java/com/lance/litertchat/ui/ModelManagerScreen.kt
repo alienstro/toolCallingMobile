@@ -59,7 +59,7 @@ fun ModelManagerScreen(
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = state.activeModel?.absolutePath ?: "Download or import a .litertlm model.",
+                            text = state.activeModel?.absolutePath ?: "Download or import a .gguf model.",
                             color = AppMuted,
                             maxLines = 2
                         )
@@ -71,7 +71,7 @@ fun ModelManagerScreen(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     MetricBox(
-                        value = formatBytes(state.activeModel?.sizeBytes ?: 0L),
+                        value = formatModelSize(state.activeModel?.sizeBytes ?: 0L),
                         label = "Size",
                         modifier = Modifier.weight(1f)
                     )
@@ -149,12 +149,3 @@ fun ModelManagerScreen(
         }
     }
 }
-
-private fun formatBytes(value: Long): String =
-    when {
-        value <= 0L -> "0"
-        value >= 1_000_000_000L -> "${value / 1_000_000_000L} GB"
-        value >= 1_000_000L -> "${value / 1_000_000L} MB"
-        value >= 1_000L -> "${value / 1_000L} KB"
-        else -> "$value B"
-    }

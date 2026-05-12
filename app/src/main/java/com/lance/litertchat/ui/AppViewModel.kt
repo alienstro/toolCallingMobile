@@ -7,10 +7,10 @@ import androidx.lifecycle.viewModelScope
 import com.lance.litertchat.download.ModelDownloadClient
 import com.lance.litertchat.download.ModelDownloader
 import com.lance.litertchat.inference.ChatEngine
-import com.lance.litertchat.inference.LiteRtChatEngine
 import com.lance.litertchat.model.ModelConstants
 import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
+import com.lance.litertchat.prompt.ChatPromptTemplate
 import com.lance.litertchat.prompt.PromptFormatter
 import com.lance.litertchat.prompt.PromptFormatterRepository
 import com.lance.litertchat.settings.AppSettingsRepository
@@ -79,7 +79,7 @@ class AppViewModel(
     private val appSettingsRepository: AppSettingsRepository = AppSettingsRepository(repository.rootDir),
     private val chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(repository.rootDir),
     private val downloader: ModelDownloadClient = ModelDownloader(),
-    private val engine: ChatEngine = LiteRtChatEngine(),
+    private val engine: ChatEngine,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nanoTimeProvider: () -> Long = System::nanoTime
 ) : ViewModel() {
@@ -316,7 +316,7 @@ class AppViewModel(
             }
 
             val startedAtNanos = nanoTimeProvider()
-            val modelPrompt = promptForModel(cleanedPrompt)
+            val modelPrompt = promptForModel(cleanedPrompt, model)
             val streamResponsesEnabled = appSettingsRepository.load().streamResponsesEnabled
             engine.load(File(model.absolutePath)).fold(
                 onSuccess = {
@@ -459,14 +459,14 @@ class AppViewModel(
     private fun loadingAssistantMessage(): ChatMessage =
         ChatMessage("assistant", "Processing...", isLoading = true)
 
-    private fun promptForModel(userPrompt: String): String {
+    private fun promptForModel(userPrompt: String, model: ModelMetadata): String {
         val formatter = promptFormatterRepository.loadState().activeFormatter
-        val formatterBody = formatter?.body.orEmpty().trim()
-        return if (formatterBody.isBlank()) {
-            userPrompt
-        } else {
-            "$formatterBody\n\nUser message:\n$userPrompt"
-        }
+        val systemPrompt = listOf(
+            formatter?.body.orEmpty().trim(),
+            "Current local model file: ${model.fileName}"
+        ).filter { it.isNotBlank() }
+            .joinToString("\n\n")
+        return ChatPromptTemplate.format(systemPrompt, userPrompt)
     }
 
     private fun mergeStreamChunk(currentText: String, chunk: String): String =

@@ -17,8 +17,8 @@ class ModelRepositoryTest {
         val root = temporaryFolder.newFolder()
         val repository = ModelRepository(root)
         val metadata = ModelMetadata(
-            fileName = "gemma-4-E2B-it.litertlm",
-            absolutePath = File(root, "models/gemma-4-E2B-it.litertlm").absolutePath,
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            absolutePath = File(root, "models/qwen2.5-0.5b-instruct-q4_k_m.gguf").absolutePath,
             source = "download",
             sourceUrl = ModelConstants.DEFAULT_MODEL_URL,
             sizeBytes = 1234L,
@@ -35,8 +35,8 @@ class ModelRepositoryTest {
         val root = temporaryFolder.newFolder()
         val repository = ModelRepository(root)
         val metadata = ModelMetadata(
-            fileName = "gemma-4-E2B-it.litertlm",
-            absolutePath = File(root, "models/gemma-4-E2B-it.litertlm").absolutePath,
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            absolutePath = File(root, "models/qwen2.5-0.5b-instruct-q4_k_m.gguf").absolutePath,
             source = "local",
             sourceUrl = "",
             sizeBytes = 1234L,
@@ -53,8 +53,8 @@ class ModelRepositoryTest {
         val root = temporaryFolder.newFolder()
         val repository = ModelRepository(root)
         val metadata = ModelMetadata(
-            fileName = "gemma-4-E2B-it.litertlm",
-            absolutePath = File(root, "models/gemma-4-E2B-it.litertlm").absolutePath,
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+            absolutePath = File(root, "models/qwen2.5-0.5b-instruct-q4_k_m.gguf").absolutePath,
             source = "download",
             sourceUrl = "https://example.test/model?signature=a=b",
             sizeBytes = 1234L,
@@ -73,8 +73,8 @@ class ModelRepositoryTest {
         val metadataFile = File(repository.modelDirectory(), "active-model.properties")
         metadataFile.writeText(
             listOf(
-                "fileName=gemma-4-E2B-it.litertlm",
-                "absolutePath=${File(root, "models/gemma-4-E2B-it.litertlm").absolutePath}",
+                "fileName=qwen2.5-0.5b-instruct-q4_k_m.gguf",
+                "absolutePath=${File(root, "models/qwen2.5-0.5b-instruct-q4_k_m.gguf").absolutePath}",
                 "source=local",
                 "sourceUrl=",
                 "sizeBytes=1234",
@@ -84,8 +84,8 @@ class ModelRepositoryTest {
 
         assertEquals(
             ModelMetadata(
-                fileName = "gemma-4-E2B-it.litertlm",
-                absolutePath = File(root, "models/gemma-4-E2B-it.litertlm").absolutePath,
+                fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+                absolutePath = File(root, "models/qwen2.5-0.5b-instruct-q4_k_m.gguf").absolutePath,
                 source = "local",
                 sourceUrl = null,
                 sizeBytes = 1234L,
@@ -99,10 +99,10 @@ class ModelRepositoryTest {
     fun deleteInstalledModelClearsMetadataAndFile() {
         val root = temporaryFolder.newFolder()
         val repository = ModelRepository(root)
-        val modelFile = File(repository.modelDirectory(), "gemma-4-E2B-it.litertlm")
+        val modelFile = File(repository.modelDirectory(), "qwen2.5-0.5b-instruct-q4_k_m.gguf")
         modelFile.writeText("fake model")
         val metadata = ModelMetadata(
-            fileName = "gemma-4-E2B-it.litertlm",
+            fileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf",
             absolutePath = modelFile.absolutePath,
             source = "download",
             sourceUrl = ModelConstants.DEFAULT_MODEL_URL,
@@ -161,10 +161,10 @@ class ModelRepositoryTest {
     fun installedModelFileIgnoresOutsideModelDirectory() {
         val root = temporaryFolder.newFolder()
         val repository = ModelRepository(root)
-        val outsideFile = temporaryFolder.newFile("outside-model.litertlm")
+        val outsideFile = temporaryFolder.newFile("outside-model.gguf")
         outsideFile.writeText("outside model")
         val metadata = ModelMetadata(
-            fileName = "outside-model.litertlm",
+            fileName = "outside-model.gguf",
             absolutePath = outsideFile.absolutePath,
             source = "local",
             sourceUrl = null,
@@ -180,10 +180,10 @@ class ModelRepositoryTest {
     fun deleteInstalledModelDoesNotDeleteOutsideModelDirectory() {
         val root = temporaryFolder.newFolder()
         val repository = ModelRepository(root)
-        val outsideFile = temporaryFolder.newFile("outside-model.litertlm")
+        val outsideFile = temporaryFolder.newFile("outside-model.gguf")
         outsideFile.writeText("outside model")
         val metadata = ModelMetadata(
-            fileName = "outside-model.litertlm",
+            fileName = "outside-model.gguf",
             absolutePath = outsideFile.absolutePath,
             source = "local",
             sourceUrl = null,
@@ -198,3 +198,5 @@ class ModelRepositoryTest {
         assertNull(repository.loadMetadata())
     }
 }
+
+

@@ -1,6 +1,8 @@
 #include <jni.h>
 
+#include <android/log.h>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -12,6 +14,8 @@
 #include "llama.h"
 
 namespace {
+
+constexpr const char *kLogTag = "NativeLlama";
 
 struct NativeLlamaState {
     llama_model *model = nullptr;
@@ -27,6 +31,21 @@ std::mutex g_registry_mutex;
 std::unordered_map<jlong, NativeLlamaState *> g_state_registry;
 jlong g_next_handle = 1;
 std::once_flag g_backend_once;
+
+int64_t now_millis() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+}
+
+void log_duration(const char *label, int64_t started_at_ms) {
+    __android_log_print(
+            ANDROID_LOG_INFO,
+            kLogTag,
+            "%s took %lld ms",
+            label,
+            static_cast<long long>(now_millis() - started_at_ms));
+}
 
 class JniUtfChars {
 public:
@@ -512,6 +531,7 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeLoadModel(
         jint threads) {
     NativeLlamaState *state = nullptr;
     try {
+        const int64_t started_at_ms = now_millis();
         validate_load_args(context_length, batch_size, threads);
         const JniUtfChars path_chars(env, model_path, "model_path");
         std::string path(path_chars.c_str());
@@ -544,6 +564,7 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeLoadModel(
 
         const jlong handle = register_state(state);
         state = nullptr;
+        log_duration("model load", started_at_ms);
         return handle;
     } catch (const std::exception &error) {
         free_state(state);
@@ -564,6 +585,7 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeGenerate(
         jfloat top_p,
         jobject callback) {
     try {
+        const int64_t generation_started_at_ms = now_millis();
         if (max_tokens <= 0) {
             throw std::invalid_argument("max_tokens must be greater than 0.");
         }
@@ -599,9 +621,11 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeGenerate(
         }
 
         llama_memory_clear(llama_get_memory(state->context), true);
+        const int64_t prompt_eval_started_at_ms = now_millis();
         if (!decode_tokens(state, prompt_tokens)) {
             return new_utf8_string(env, "");
         }
+        log_duration("prompt eval", prompt_eval_started_at_ms);
 
         llama_sampler_chain_params sampler_params = llama_sampler_chain_default_params();
         std::unique_ptr<llama_sampler, decltype(&llama_sampler_free)> sampler(
@@ -619,6 +643,7 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeGenerate(
         std::string output_bytes;
         int32_t generated = 0;
         uint32_t position = static_cast<uint32_t>(prompt_tokens.size());
+        bool first_token_logged = false;
 
         while (generated < max_tokens &&
                !state->cancel_requested.load() &&
@@ -633,6 +658,10 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeGenerate(
             }
 
             std::string piece = token_to_piece(vocab, token);
+            if (!first_token_logged) {
+                log_duration("first token", generation_started_at_ms);
+                first_token_logged = true;
+            }
             if (!piece.empty()) {
                 output_bytes += piece;
                 std::string stream_text = stream_buffer.append(piece);
@@ -663,6 +692,12 @@ Java_com_lance_litertchat_inference_NativeLlamaBridge_nativeGenerate(
             }
         }
 
+        __android_log_print(
+                ANDROID_LOG_INFO,
+                kLogTag,
+                "generation produced %d tokens in %lld ms",
+                generated,
+                static_cast<long long>(now_millis() - generation_started_at_ms));
         return new_utf8_string(env, output_bytes);
     } catch (const std::exception &error) {
         if (!env->ExceptionCheck()) {
