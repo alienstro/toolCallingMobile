@@ -2,7 +2,7 @@
 
 ## Goal
 
-Fully replace the current LiteRT-LM Android inference path with RunAnywhere's Kotlin SDK, making RunAnywhere the only supported local LLM runtime in the app.
+Fully replace the current LiteRT-LM Android inference path with RunAnywhere's Kotlin SDK for native Android, making RunAnywhere the only supported local LLM runtime in the app.
 
 ## Current State
 
@@ -21,6 +21,8 @@ The existing architecture has useful boundaries that should remain:
 The app should use RunAnywhere as the sole inference runtime. The app should support `.gguf` LLM models only, because RunAnywhere's Android LLM backend uses llama.cpp and GGUF files for text generation.
 
 Visible LiteRT-LM references should be removed from app behavior, README instructions, diagnostics wording, and model manager copy. Internal package names can remain `com.lance.litertchat` for now to avoid an Android application/package rename. The user-facing app name can be updated separately if desired.
+
+The migration must follow the official RunAnywhere Kotlin SDK documentation for native Android. Do not use the React Native, Flutter, Web, or Swift SDK APIs as implementation references.
 
 ## Runtime Architecture
 
@@ -44,18 +46,19 @@ Replace `LiteRtChatEngine` with `RunAnywhereChatEngine`.
 `RunAnywhereChatEngine` responsibilities:
 
 - Validate that the model file exists and ends with `.gguf`.
+- Use Kotlin SDK imports from `com.runanywhere.sdk.*`, including `com.runanywhere.sdk.public.RunAnywhere`, `com.runanywhere.sdk.public.SDKEnvironment`, `com.runanywhere.sdk.storage.AndroidPlatformContext`, `com.runanywhere.sdk.foundation.bridge.extensions.CppBridgeModelPaths`, and `com.runanywhere.sdk.llm.llamacpp.LlamaCPP`.
 - Initialize RunAnywhere once before model load if initialization has not already happened.
 - Register the installed model with a stable local model id.
 - Load the registered model through `RunAnywhere.loadLLMModel(modelId)`.
 - Generate non-streaming text through `RunAnywhere.chat(prompt)`.
-- Generate streaming text through `RunAnywhere.generateStream(prompt)`.
+- Generate streaming text through the Kotlin Flow returned by `RunAnywhere.generateStream(prompt)`.
 - Track the loaded model path so repeated sends do not reload the same model unnecessarily.
 - Expose cancellation best-effort through coroutine cancellation and any RunAnywhere cancellation API available in the installed SDK version.
 - Make `release()` clear local engine state. If RunAnywhere exposes an unload/release API in the installed SDK version, call it there.
 
 ## SDK Initialization
 
-RunAnywhere initialization must happen before inference:
+RunAnywhere initialization must happen before inference in the order documented by the Kotlin SDK:
 
 - `AndroidPlatformContext.initialize(context)`
 - `RunAnywhere.initialize(environment = SDKEnvironment.DEVELOPMENT)` for debug-oriented local testing
@@ -64,7 +67,7 @@ RunAnywhere initialization must happen before inference:
 
 Add a small initializer, for example `RunAnywhereInitializer`, so the ordering is explicit and unit-testable at the Kotlin boundary. `MainActivity.onCreate()` should call it before `setContent`, and `RunAnywhereChatEngine.load()` should also call the initializer defensively if needed.
 
-The app only needs the core SDK and llama.cpp module. It should not add ONNX, STT, TTS, VAD, RAG, or VLM dependencies for this migration.
+The app only needs the Kotlin SDK core module and Kotlin SDK llama.cpp module. It should not add the Kotlin SDK ONNX module, STT, TTS, VAD, RAG, or VLM features for this migration.
 
 ## Gradle And Repositories
 
@@ -79,7 +82,8 @@ Update `app/build.gradle.kts`:
 - Remove `com.google.ai.edge.litertlm:litertlm-android`.
 - Add `io.github.sanchitmonga22:runanywhere-sdk-android:0.20.6`.
 - Add `io.github.sanchitmonga22:runanywhere-llamacpp-android:0.20.6`.
-- Keep current Android `minSdk = 26`, `compileSdk = 35`, Kotlin, and Java 21 settings unless Gradle resolution proves the SDK requires a lower `jvmTarget` setting.
+- Do not add `io.github.sanchitmonga22:runanywhere-onnx-android` unless a later feature adds STT, TTS, VAD, or ONNX inference.
+- Align the module with the Kotlin SDK installation guide: `compileSdk = 35`, `minSdk = 26`, `targetSdk = 35`, and Java/Kotlin JVM target 17 if the SDK does not resolve cleanly with the current Java 21 project setting.
 
 ## Model Lifecycle
 
