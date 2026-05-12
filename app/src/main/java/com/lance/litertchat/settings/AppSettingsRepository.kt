@@ -4,7 +4,9 @@ import java.io.File
 import java.util.Properties
 
 data class AppSettings(
-    val streamResponsesEnabled: Boolean = true
+    val streamResponsesEnabled: Boolean = true,
+    val gpuBackendEnabled: Boolean = false,
+    val gemmaMtpEnabled: Boolean = false
 )
 
 class AppSettingsRepository(private val rootDir: File) {
@@ -16,11 +18,12 @@ class AppSettingsRepository(private val rootDir: File) {
 
         val properties = Properties()
         settingsFile.inputStream().use { properties.load(it) }
+        val gpuBackendEnabled = properties.booleanValue(KEY_GPU_BACKEND_ENABLED, defaultValue = false)
         return AppSettings(
-            streamResponsesEnabled = properties
-                .getProperty(KEY_STREAM_RESPONSES_ENABLED)
-                ?.toBooleanStrictOrNull()
-                ?: true
+            streamResponsesEnabled = properties.booleanValue(KEY_STREAM_RESPONSES_ENABLED, defaultValue = true),
+            gpuBackendEnabled = gpuBackendEnabled,
+            gemmaMtpEnabled = gpuBackendEnabled &&
+                properties.booleanValue(KEY_GEMMA_MTP_ENABLED, defaultValue = false)
         )
     }
 
@@ -28,16 +31,42 @@ class AppSettingsRepository(private val rootDir: File) {
         save(load().copy(streamResponsesEnabled = enabled))
     }
 
+    fun setGpuBackendEnabled(enabled: Boolean) {
+        val currentSettings = load()
+        save(
+            currentSettings.copy(
+                gpuBackendEnabled = enabled,
+                gemmaMtpEnabled = enabled && currentSettings.gemmaMtpEnabled
+            )
+        )
+    }
+
+    fun setGemmaMtpEnabled(enabled: Boolean) {
+        val currentSettings = load()
+        save(
+            currentSettings.copy(
+                gemmaMtpEnabled = currentSettings.gpuBackendEnabled && enabled
+            )
+        )
+    }
+
     private fun save(settings: AppSettings) {
         settingsDir.mkdirs()
         val properties = Properties()
         properties.setProperty(KEY_STREAM_RESPONSES_ENABLED, settings.streamResponsesEnabled.toString())
+        properties.setProperty(KEY_GPU_BACKEND_ENABLED, settings.gpuBackendEnabled.toString())
+        properties.setProperty(KEY_GEMMA_MTP_ENABLED, settings.gemmaMtpEnabled.toString())
         settingsFile.outputStream().use { output ->
             properties.store(output, null)
         }
     }
 
+    private fun Properties.booleanValue(key: String, defaultValue: Boolean): Boolean =
+        getProperty(key)?.toBooleanStrictOrNull() ?: defaultValue
+
     private companion object {
         const val KEY_STREAM_RESPONSES_ENABLED = "streamResponsesEnabled"
+        const val KEY_GPU_BACKEND_ENABLED = "gpuBackendEnabled"
+        const val KEY_GEMMA_MTP_ENABLED = "gemmaMtpEnabled"
     }
 }
