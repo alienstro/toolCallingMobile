@@ -199,6 +199,17 @@ class LiteRtChatEngineConfigTest {
         assertTrue(imageContent!!.bytes.contentEquals(byteArrayOf(1, 2, 3)))
     }
 
+    @Test
+    fun loadConfiguresVisionBackendForMultimodalModels() = runTest {
+        val factory = CapturingLiteRtEngineFactory(EmptyLiteRtConversationHandle())
+        val engine = LiteRtChatEngine(factory)
+
+        val result = engine.load(temporaryModelFile(), InferenceRuntimeConfig.defaultCpu)
+
+        assertTrue(result.isSuccess)
+        assertTrue(factory.visionBackends.single() is Backend.CPU)
+    }
+
     private fun temporaryModelFile(): File =
         temporaryFolder.newFile("model-${System.nanoTime()}.litertlm").also {
             it.writeText("model")
@@ -208,7 +219,7 @@ class LiteRtChatEngineConfigTest {
 private class ThrowingLiteRtEngineFactory(
     private val error: Throwable
 ) : LiteRtEngineHandleFactory {
-    override fun create(modelPath: String, backend: Backend): LiteRtEngineHandle {
+    override fun create(modelPath: String, backend: Backend, visionBackend: Backend?): LiteRtEngineHandle {
         throw error
     }
 }
@@ -216,8 +227,19 @@ private class ThrowingLiteRtEngineFactory(
 private class FakeLiteRtEngineFactory(
     private val conversation: LiteRtConversationHandle
 ) : LiteRtEngineHandleFactory {
-    override fun create(modelPath: String, backend: Backend): LiteRtEngineHandle =
+    override fun create(modelPath: String, backend: Backend, visionBackend: Backend?): LiteRtEngineHandle =
         FakeLiteRtEngineHandle(conversation)
+}
+
+private class CapturingLiteRtEngineFactory(
+    private val conversation: LiteRtConversationHandle
+) : LiteRtEngineHandleFactory {
+    val visionBackends = mutableListOf<Backend?>()
+
+    override fun create(modelPath: String, backend: Backend, visionBackend: Backend?): LiteRtEngineHandle {
+        visionBackends += visionBackend
+        return FakeLiteRtEngineHandle(conversation)
+    }
 }
 
 private class FakeLiteRtEngineHandle(

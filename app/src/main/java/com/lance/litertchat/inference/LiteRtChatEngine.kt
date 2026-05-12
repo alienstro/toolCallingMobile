@@ -1,5 +1,7 @@
 package com.lance.litertchat.inference
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
@@ -12,7 +14,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
+import kotlin.math.max
 
 interface ChatEngine {
     suspend fun load(
@@ -88,7 +92,8 @@ class LiteRtChatEngine : ChatEngine {
                 val newEngine = try {
                     engineFactory.create(
                         modelPath = modelPath,
-                        backend = backendConfig.backend
+                        backend = backendConfig.backend,
+                        visionBackend = backendConfig.backend
                     )
                 } catch (error: Throwable) {
                     setSpeculativeFlagOwner(owner = speculativeFlagOwner, enabled = false)
@@ -234,16 +239,42 @@ class LiteRtChatEngine : ChatEngine {
         require(imagePath.isNotBlank()) { "Image path must not be blank." }
         val imageFile = File(imagePath)
         require(imageFile.exists() && imageFile.isFile) { "Image file does not exist." }
-        val imageBytes = imageFile.readBytes()
+        val imageBytes = normalizedImageBytes(imageFile)
         require(imageBytes.isNotEmpty()) { "Image file is empty." }
         return Contents.of(
-            Content.Text(prompt),
-            Content.ImageBytes(imageBytes)
+            Content.ImageBytes(imageBytes),
+            Content.Text(prompt)
         )
+    }
+
+    private fun normalizedImageBytes(imageFile: File): ByteArray {
+        val bitmap = runCatching { decodeSampledBitmap(imageFile, MAX_IMAGE_SIDE_PX) }.getOrNull()
+            ?: return imageFile.readBytes()
+        ByteArrayOutputStream().use { output ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            return output.toByteArray()
+        }
+    }
+
+    private fun decodeSampledBitmap(imageFile: File, maxSide: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(imageFile.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val sampleSize = max(
+            1,
+            max(
+                (bounds.outWidth + maxSide - 1) / maxSide,
+                (bounds.outHeight + maxSide - 1) / maxSide
+            )
+        )
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return BitmapFactory.decodeFile(imageFile.absolutePath, options)
     }
 
     private companion object {
         const val MODEL_EXTENSION = ".litertlm"
+        const val MAX_IMAGE_SIDE_PX = 1024
         private val speculativeFlagOwners = mutableSetOf<Any>()
         private val speculativeFlagLock = Any()
 
@@ -261,7 +292,7 @@ class LiteRtChatEngine : ChatEngine {
 }
 
 internal interface LiteRtEngineHandleFactory {
-    fun create(modelPath: String, backend: Backend): LiteRtEngineHandle
+    fun create(modelPath: String, backend: Backend, visionBackend: Backend?): LiteRtEngineHandle
 }
 
 internal interface LiteRtEngineHandle {
@@ -280,12 +311,13 @@ internal interface LiteRtConversationHandle {
 }
 
 private object RealLiteRtEngineHandleFactory : LiteRtEngineHandleFactory {
-    override fun create(modelPath: String, backend: Backend): LiteRtEngineHandle =
+    override fun create(modelPath: String, backend: Backend, visionBackend: Backend?): LiteRtEngineHandle =
         RealLiteRtEngineHandle(
             Engine(
                 EngineConfig(
                     modelPath = modelPath,
-                    backend = backend
+                    backend = backend,
+                    visionBackend = visionBackend
                 )
             )
         )
