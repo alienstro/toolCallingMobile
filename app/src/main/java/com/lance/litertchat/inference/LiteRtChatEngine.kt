@@ -4,13 +4,19 @@ import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.ExperimentalApi
+import com.google.ai.edge.litertlm.ExperimentalFlags
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import java.io.File
 
 interface ChatEngine {
-    suspend fun load(modelFile: File): Result<Unit>
+    suspend fun load(
+        modelFile: File,
+        runtimeConfig: InferenceRuntimeConfig = InferenceRuntimeConfig.defaultCpu
+    ): Result<Unit>
     suspend fun generate(prompt: String): Result<String>
     suspend fun generateStreaming(
         prompt: String,
@@ -20,13 +26,27 @@ interface ChatEngine {
     fun release()
 }
 
+@OptIn(ExperimentalApi::class)
 class LiteRtChatEngine : ChatEngine {
+    private val engineFactory: LiteRtEngineHandleFactory
     private val lock = Any()
-    private var engine: Engine? = null
-    private var conversation: Conversation? = null
+    private var engine: LiteRtEngineHandle? = null
+    private var conversation: LiteRtConversationHandle? = null
     private var loadedModelPath: String? = null
+    private var loadedRuntimeConfig: InferenceRuntimeConfig? = null
 
-    override suspend fun load(modelFile: File): Result<Unit> = withContext(Dispatchers.Default) {
+    constructor() {
+        engineFactory = RealLiteRtEngineHandleFactory
+    }
+
+    internal constructor(engineFactory: LiteRtEngineHandleFactory) {
+        this.engineFactory = engineFactory
+    }
+
+    override suspend fun load(
+        modelFile: File,
+        runtimeConfig: InferenceRuntimeConfig
+    ): Result<Unit> = withContext(Dispatchers.Default) {
         runCatching {
             synchronized(lock) {
                 require(modelFile.exists() && modelFile.isFile) { "Model file does not exist." }
@@ -37,24 +57,31 @@ class LiteRtChatEngine : ChatEngine {
                 val modelPath = modelFile.absolutePath
                 if (
                     loadedModelPath == modelPath &&
+                    loadedRuntimeConfig == runtimeConfig &&
                     engine != null &&
                     conversation != null
                 ) {
                     return@runCatching
                 }
 
-                if (loadedModelPath != modelPath) {
+                if (loadedModelPath != modelPath || loadedRuntimeConfig != runtimeConfig) {
                     release()
                 } else if (engine == null || conversation == null) {
                     release()
                 }
 
-                val newEngine = Engine(
-                    EngineConfig(
+                val backendConfig = LiteRtBackendConfig.from(runtimeConfig)
+                ExperimentalFlags.enableSpeculativeDecoding = backendConfig.speculativeDecodingEnabled
+
+                val newEngine = try {
+                    engineFactory.create(
                         modelPath = modelPath,
-                        backend = Backend.CPU()
+                        backend = backendConfig.backend
                     )
-                )
+                } catch (error: Throwable) {
+                    resetSpeculativeFlagAfterFailedLoad()
+                    throw error
+                }
 
                 try {
                     newEngine.initialize()
@@ -63,9 +90,10 @@ class LiteRtChatEngine : ChatEngine {
                     engine = newEngine
                     conversation = newConversation
                     loadedModelPath = modelPath
+                    loadedRuntimeConfig = runtimeConfig
                 } catch (error: Throwable) {
-                    release()
                     runCatching { newEngine.close() }
+                    resetSpeculativeFlagAfterFailedLoad()
                     throw error
                 }
             }
@@ -74,18 +102,19 @@ class LiteRtChatEngine : ChatEngine {
 
     override suspend fun generate(prompt: String): Result<String> = withContext(Dispatchers.Default) {
         runCatching {
-            synchronized(lock) {
-                require(prompt.isNotBlank()) { "Prompt must not be blank." }
+            require(prompt.isNotBlank()) { "Prompt must not be blank." }
 
+            val activeConversation = synchronized(lock) {
                 val activeConversation = conversation
                     ?: error("LiteRT-LM model is not loaded.")
                 if (engine == null || loadedModelPath == null) {
                     error("LiteRT-LM model is not loaded.")
                 }
-
-                val message = activeConversation.sendMessage(prompt)
-                message.toString()
+                activeConversation
             }
+
+            val message = activeConversation.sendMessage(prompt)
+            message.toString()
         }
     }
 
@@ -128,13 +157,100 @@ class LiteRtChatEngine : ChatEngine {
             conversation = null
             engine = null
             loadedModelPath = null
+            loadedRuntimeConfig = null
+            ExperimentalFlags.enableSpeculativeDecoding = false
 
             runCatching { activeConversation?.close() }
             runCatching { activeEngine?.close() }
         }
     }
 
+    private fun resetSpeculativeFlagAfterFailedLoad() {
+        ExperimentalFlags.enableSpeculativeDecoding =
+            loadedRuntimeConfig?.speculativeDecodingEnabled == true &&
+            engine != null &&
+            conversation != null
+    }
+
     private companion object {
         const val MODEL_EXTENSION = ".litertlm"
+    }
+}
+
+internal interface LiteRtEngineHandleFactory {
+    fun create(modelPath: String, backend: Backend): LiteRtEngineHandle
+}
+
+internal interface LiteRtEngineHandle {
+    fun initialize()
+    fun createConversation(): LiteRtConversationHandle
+    fun close()
+}
+
+internal interface LiteRtConversationHandle {
+    fun sendMessage(prompt: String): Any?
+    fun sendMessageAsync(prompt: String): Flow<Any?>
+    fun cancelProcess()
+    fun close()
+}
+
+private object RealLiteRtEngineHandleFactory : LiteRtEngineHandleFactory {
+    override fun create(modelPath: String, backend: Backend): LiteRtEngineHandle =
+        RealLiteRtEngineHandle(
+            Engine(
+                EngineConfig(
+                    modelPath = modelPath,
+                    backend = backend
+                )
+            )
+        )
+}
+
+private class RealLiteRtEngineHandle(
+    private val engine: Engine
+) : LiteRtEngineHandle {
+    override fun initialize() {
+        engine.initialize()
+    }
+
+    override fun createConversation(): LiteRtConversationHandle =
+        RealLiteRtConversationHandle(engine.createConversation())
+
+    override fun close() {
+        engine.close()
+    }
+}
+
+private class RealLiteRtConversationHandle(
+    private val conversation: Conversation
+) : LiteRtConversationHandle {
+    override fun sendMessage(prompt: String): Any? =
+        conversation.sendMessage(prompt)
+
+    override fun sendMessageAsync(prompt: String): Flow<Any?> =
+        conversation.sendMessageAsync(prompt)
+
+    override fun cancelProcess() {
+        conversation.cancelProcess()
+    }
+
+    override fun close() {
+        conversation.close()
+    }
+}
+
+internal data class LiteRtBackendConfig(
+    val backend: Backend,
+    val speculativeDecodingEnabled: Boolean
+) {
+    companion object {
+        fun from(config: InferenceRuntimeConfig): LiteRtBackendConfig =
+            LiteRtBackendConfig(
+                backend = when (config.backend) {
+                    InferenceBackend.CPU -> Backend.CPU()
+                    InferenceBackend.GPU -> Backend.GPU()
+                },
+                speculativeDecodingEnabled = config.speculativeDecodingEnabled
+            )
     }
 }

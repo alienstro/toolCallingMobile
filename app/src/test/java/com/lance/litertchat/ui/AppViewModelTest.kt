@@ -2,6 +2,9 @@ package com.lance.litertchat.ui
 
 import com.lance.litertchat.download.ModelDownloadClient
 import com.lance.litertchat.inference.ChatEngine
+import com.lance.litertchat.inference.InferenceBackend
+import com.lance.litertchat.inference.InferenceRuntimeConfig
+import com.lance.litertchat.inference.InferenceRuntimeStatus
 import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.prompt.PromptFormatterRepository
@@ -145,7 +148,14 @@ class AppViewModelTest {
 
         assertNull(repository.loadMetadata())
         assertFalse(modelFile.exists())
-        assertEquals(AppState(), viewModel.state.value)
+        assertNull(viewModel.state.value.activeModel)
+        assertFalse(viewModel.state.value.isDownloading)
+        assertFalse(viewModel.state.value.isLoadingModel)
+        assertFalse(viewModel.state.value.isGenerating)
+        assertNull(viewModel.state.value.downloadProgressText)
+        assertNull(viewModel.state.value.errorText)
+        assertNull(viewModel.state.value.generationStats)
+        assertEquals(InferenceRuntimeStatus(), viewModel.state.value.runtimeStatus)
     }
 
     @Test
@@ -198,6 +208,42 @@ class AppViewModelTest {
         releaseDownload.complete(Unit)
         advanceUntilIdle()
         assertEquals("new-model.litertlm", viewModel.state.value.activeModel?.fileName)
+    }
+
+    @Test
+    fun deleteModelIsIgnoredWhileGeneratingAndGenerationCompletes() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val metadata = installedModel(path = modelFile.absolutePath)
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(metadata)
+        val response = CompletableDeferred<String>()
+        val engine = FakeChatEngine(responseDeferred = response)
+        val viewModel = testViewModel(repository = repository, engine = engine)
+
+        viewModel.sendMessage("Hello")
+        runCurrent()
+        viewModel.deleteModel()
+        runCurrent()
+
+        assertEquals(metadata, repository.loadMetadata())
+        assertTrue(modelFile.exists())
+        assertEquals(metadata, viewModel.state.value.activeModel)
+        assertTrue(viewModel.state.value.isGenerating)
+        assertEquals(0, engine.releaseCount)
+
+        response.complete("Done")
+        advanceUntilIdle()
+
+        assertEquals(metadata, repository.loadMetadata())
+        assertTrue(modelFile.exists())
+        assertEquals(metadata, viewModel.state.value.activeModel)
+        assertFalse(viewModel.state.value.isGenerating)
+        assertEquals(0, engine.releaseCount)
+        assertEquals(
+            listOf(ChatMessage("user", "Hello"), ChatMessage("assistant", "Done")),
+            viewModel.state.value.messages
+        )
     }
 
     @Test
@@ -394,7 +440,7 @@ class AppViewModelTest {
         viewModel.sendMessage(" Hello ")
         advanceUntilIdle()
 
-        assertEquals(listOf(modelFile.absolutePath), engine.loadedPaths)
+        assertEquals(listOf(modelFile.absolutePath to InferenceRuntimeConfig.defaultCpu), engine.loadRequests)
         assertEquals(
             listOf("${PromptFormatterRepository.DEFAULT_FORMATTER_BODY}\n\nUser message:\nHello"),
             engine.streamingPrompts
@@ -405,6 +451,189 @@ class AppViewModelTest {
             listOf(ChatMessage("user", "Hello"), ChatMessage("assistant", "Hi there")),
             viewModel.state.value.messages
         )
+    }
+
+    @Test
+    fun duplicateQuickSendOnlyStartsOneGeneration() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(repository, engine = engine)
+
+        viewModel.sendMessage("First")
+        viewModel.sendMessage("Second")
+        advanceUntilIdle()
+
+        assertEquals(1, engine.loadRequests.size)
+        assertEquals(1, engine.streamingPrompts.size)
+        assertEquals(
+            listOf(ChatMessage("user", "First"), ChatMessage("assistant", "Done")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun sendMessageRequestsGpuWhenSettingIsEnabled() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setGpuBackendEnabled(true)
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                modelFile.absolutePath to InferenceRuntimeConfig(
+                    backend = InferenceBackend.GPU,
+                    speculativeDecodingEnabled = false
+                )
+            ),
+            engine.loadRequests
+        )
+    }
+
+    @Test
+    fun sendMessageRequestsGpuMtpWhenBothSettingsAreEnabled() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setGpuBackendEnabled(true)
+        settingsRepository.setGemmaMtpEnabled(true)
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                modelFile.absolutePath to InferenceRuntimeConfig(
+                    backend = InferenceBackend.GPU,
+                    speculativeDecodingEnabled = true
+                )
+            ),
+            engine.loadRequests
+        )
+    }
+
+    @Test
+    fun gpuMtpLoadFailureFallsBackToCpu() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setGpuBackendEnabled(true)
+        settingsRepository.setGemmaMtpEnabled(true)
+        val gpuMtpConfig = InferenceRuntimeConfig(
+            backend = InferenceBackend.GPU,
+            speculativeDecodingEnabled = true
+        )
+        val engine = FakeChatEngine(
+            response = "CPU answer",
+            loadFailuresByConfig = mapOf(
+                gpuMtpConfig to IllegalStateException("GPU unavailable")
+            )
+        )
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                modelFile.absolutePath to gpuMtpConfig,
+                modelFile.absolutePath to InferenceRuntimeConfig.defaultCpu
+            ),
+            engine.loadRequests
+        )
+        assertEquals(1, engine.releaseCount)
+        assertEquals(
+            "GPU + MTP failed: GPU unavailable. Fell back to CPU.",
+            viewModel.state.value.runtimeStatus.fallbackReason
+        )
+        assertEquals(
+            listOf(ChatMessage("user", "Hi"), ChatMessage("assistant", "CPU answer")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
+    fun deleteModelReleasesEngineAndResetsRuntimeStatus() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setGpuBackendEnabled(true)
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+        viewModel.deleteModel()
+        advanceUntilIdle()
+
+        assertEquals(1, engine.releaseCount)
+        assertEquals(InferenceRuntimeStatus(), viewModel.state.value.runtimeStatus)
+        assertNull(viewModel.state.value.activeModel)
+    }
+
+    @Test
+    fun deleteModelPreservesPromptFormattersAndSettings() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val formatterRepository = PromptFormatterRepository(temporaryFolder.root)
+        val formatter = formatterRepository.createFormatter("Brief", "Keep it short.")
+        formatterRepository.selectFormatter(formatter.id)
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setStreamResponsesEnabled(false)
+        settingsRepository.setGpuBackendEnabled(true)
+        settingsRepository.setGemmaMtpEnabled(true)
+        val viewModel = testViewModel(
+            repository = repository,
+            formatterRepository = formatterRepository,
+            appSettingsRepository = settingsRepository
+        )
+        val expectedFormatters = viewModel.state.value.promptFormatters
+
+        viewModel.deleteModel()
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.activeModel)
+        assertEquals(expectedFormatters, viewModel.state.value.promptFormatters)
+        assertEquals(formatter.id, viewModel.state.value.activePromptFormatterId)
+        assertFalse(viewModel.state.value.streamResponsesEnabled)
+        assertTrue(viewModel.state.value.gpuBackendEnabled)
+        assertTrue(viewModel.state.value.gemmaMtpEnabled)
+        assertEquals(InferenceRuntimeStatus(), viewModel.state.value.runtimeStatus)
     }
 
     @Test
@@ -744,16 +973,21 @@ private class FakeChatEngine(
     private val responseDeferred: CompletableDeferred<String>? = null,
     private val streamingResponses: List<String> = emptyList(),
     private val loadFailure: Throwable? = null,
+    private val loadFailuresByConfig: Map<InferenceRuntimeConfig, Throwable> = emptyMap(),
     private val generateFailure: Throwable? = null
 ) : ChatEngine {
-    val loadedPaths = mutableListOf<String>()
+    val loadRequests = mutableListOf<Pair<String, InferenceRuntimeConfig>>()
     val prompts = mutableListOf<String>()
     val streamingPrompts = mutableListOf<String>()
     var releaseCount = 0
     var cancelCount = 0
 
-    override suspend fun load(modelFile: File): Result<Unit> {
-        loadedPaths += modelFile.absolutePath
+    override suspend fun load(
+        modelFile: File,
+        runtimeConfig: InferenceRuntimeConfig
+    ): Result<Unit> {
+        loadRequests += modelFile.absolutePath to runtimeConfig
+        loadFailuresByConfig[runtimeConfig]?.let { return Result.failure(it) }
         return loadFailure?.let { Result.failure(it) } ?: Result.success(Unit)
     }
 

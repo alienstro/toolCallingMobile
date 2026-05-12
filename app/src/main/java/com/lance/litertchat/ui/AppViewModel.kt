@@ -7,6 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.lance.litertchat.download.ModelDownloadClient
 import com.lance.litertchat.download.ModelDownloader
 import com.lance.litertchat.inference.ChatEngine
+import com.lance.litertchat.inference.InferenceBackend
+import com.lance.litertchat.inference.InferenceRuntimeConfig
+import com.lance.litertchat.inference.InferenceRuntimeStatus
 import com.lance.litertchat.inference.LiteRtChatEngine
 import com.lance.litertchat.model.ModelConstants
 import com.lance.litertchat.model.ModelMetadata
@@ -58,7 +61,10 @@ data class AppState(
     val generationStats: GenerationStats? = null,
     val promptFormatters: List<PromptFormatter> = emptyList(),
     val activePromptFormatterId: String = PromptFormatterRepository.DEFAULT_FORMATTER_ID,
-    val streamResponsesEnabled: Boolean = true
+    val streamResponsesEnabled: Boolean = true,
+    val gpuBackendEnabled: Boolean = false,
+    val gemmaMtpEnabled: Boolean = false,
+    val runtimeStatus: InferenceRuntimeStatus = InferenceRuntimeStatus()
 ) {
     val canChat: Boolean
         get() = activeModel != null && !isDownloading && !isLoadingModel && !isGenerating
@@ -84,15 +90,19 @@ class AppViewModel(
     private val nanoTimeProvider: () -> Long = System::nanoTime
 ) : ViewModel() {
     private val initialChatHistoryState = chatHistoryRepository.loadState()
+    private val initialPromptFormatterState = promptFormatterRepository.loadState()
+    private val initialSettings = appSettingsRepository.load()
     private val mutableState = MutableStateFlow(
         AppState(
             activeModel = repository.loadMetadata(),
             messages = initialChatHistoryState.activeSession?.messages.orEmpty(),
             chatSessions = initialChatHistoryState.sessions,
             activeChatSessionId = initialChatHistoryState.activeSessionId,
-            promptFormatters = promptFormatterRepository.loadState().formatters,
-            activePromptFormatterId = promptFormatterRepository.loadState().activeFormatterId,
-            streamResponsesEnabled = appSettingsRepository.load().streamResponsesEnabled
+            promptFormatters = initialPromptFormatterState.formatters,
+            activePromptFormatterId = initialPromptFormatterState.activeFormatterId,
+            streamResponsesEnabled = initialSettings.streamResponsesEnabled,
+            gpuBackendEnabled = initialSettings.gpuBackendEnabled,
+            gemmaMtpEnabled = initialSettings.gemmaMtpEnabled
         )
     )
     val state: StateFlow<AppState> = mutableState
@@ -222,16 +232,24 @@ class AppViewModel(
     }
 
     fun deleteModel() {
-        if (mutableState.value.isDownloading) return
+        if (mutableState.value.isDownloading || mutableState.value.isGenerating) return
         viewModelScope.launch {
+            engine.release()
             withContext(ioDispatcher) {
                 repository.deleteInstalledModel()
             }
-            mutableState.value = AppState(
-                messages = mutableState.value.messages,
-                chatSessions = mutableState.value.chatSessions,
-                activeChatSessionId = mutableState.value.activeChatSessionId
-            )
+            mutableState.update {
+                it.copy(
+                    activeModel = null,
+                    isDownloading = false,
+                    isLoadingModel = false,
+                    isGenerating = false,
+                    downloadProgressText = null,
+                    errorText = null,
+                    generationStats = null,
+                    runtimeStatus = InferenceRuntimeStatus()
+                )
+            }
         }
     }
 
@@ -291,34 +309,13 @@ class AppViewModel(
         val cleanedPrompt = prompt.trim()
         if (cleanedPrompt.isBlank()) return
 
-        val currentState = mutableState.value
-        val model = currentState.activeModel
-        if (model == null) {
-            mutableState.update {
-                it.copy(errorText = "Install a model before chatting.")
-            }
-            return
-        }
-        if (!currentState.canChat) return
+        val model = beginGeneration(cleanedPrompt) ?: return
 
         generationJob = viewModelScope.launch {
-            updateChatState {
-                val stateWithSession = it.ensureActiveChatSession(cleanedPrompt)
-                val nextMessages = stateWithSession.messages +
-                    ChatMessage("user", cleanedPrompt) +
-                    loadingAssistantMessage()
-
-                stateWithSession.withActiveChatMessages(nextMessages).copy(
-                    isGenerating = true,
-                    errorText = null,
-                    generationStats = null
-                )
-            }
-
             val startedAtNanos = nanoTimeProvider()
             val modelPrompt = promptForModel(cleanedPrompt)
-            val streamResponsesEnabled = appSettingsRepository.load().streamResponsesEnabled
-            engine.load(File(model.absolutePath)).fold(
+            val streamResponsesEnabled = mutableState.value.streamResponsesEnabled
+            loadModelWithFallback(model).fold(
                 onSuccess = {
                     try {
                         val streamedText = StringBuilder()
@@ -397,6 +394,31 @@ class AppViewModel(
         }
     }
 
+    private fun beginGeneration(cleanedPrompt: String): ModelMetadata? {
+        var modelToUse: ModelMetadata? = null
+        updateChatState { state ->
+            val model = state.activeModel
+            when {
+                model == null -> state.copy(errorText = "Install a model before chatting.")
+                !state.canChat -> state
+                else -> {
+                    modelToUse = model
+                    val stateWithSession = state.ensureActiveChatSession(cleanedPrompt)
+                    val nextMessages = stateWithSession.messages +
+                        ChatMessage("user", cleanedPrompt) +
+                        loadingAssistantMessage()
+
+                    stateWithSession.withActiveChatMessages(nextMessages).copy(
+                        isGenerating = true,
+                        errorText = null,
+                        generationStats = null
+                    )
+                }
+            }
+        }
+        return modelToUse
+    }
+
     fun stopGeneration() {
         val activeJob = generationJob ?: return
         if (!mutableState.value.isGenerating) return
@@ -441,9 +463,17 @@ class AppViewModel(
 
     fun setStreamResponsesEnabled(enabled: Boolean) {
         appSettingsRepository.setStreamResponsesEnabled(enabled)
-        mutableState.update {
-            it.copy(streamResponsesEnabled = enabled)
-        }
+        refreshSettingsState()
+    }
+
+    fun setGpuBackendEnabled(enabled: Boolean) {
+        appSettingsRepository.setGpuBackendEnabled(enabled)
+        refreshSettingsState()
+    }
+
+    fun setGemmaMtpEnabled(enabled: Boolean) {
+        appSettingsRepository.setGemmaMtpEnabled(enabled)
+        refreshSettingsState()
     }
 
     private fun fileNameFromUrl(normalizedUrl: String): String {
@@ -482,9 +512,74 @@ class AppViewModel(
             it.copy(
                 promptFormatters = formatterState.formatters,
                 activePromptFormatterId = formatterState.activeFormatterId,
-                streamResponsesEnabled = appSettingsRepository.load().streamResponsesEnabled
+                streamResponsesEnabled = mutableState.value.streamResponsesEnabled
             )
         }
+    }
+
+    private fun refreshSettingsState() {
+        val settings = appSettingsRepository.load()
+        mutableState.update {
+            it.copy(
+                streamResponsesEnabled = settings.streamResponsesEnabled,
+                gpuBackendEnabled = settings.gpuBackendEnabled,
+                gemmaMtpEnabled = settings.gemmaMtpEnabled
+            )
+        }
+    }
+
+    private fun requestedRuntimeConfig(): InferenceRuntimeConfig {
+        val settings = appSettingsRepository.load()
+        return if (settings.gpuBackendEnabled) {
+            InferenceRuntimeConfig(
+                backend = InferenceBackend.GPU,
+                speculativeDecodingEnabled = settings.gemmaMtpEnabled
+            )
+        } else {
+            InferenceRuntimeConfig.defaultCpu
+        }
+    }
+
+    private suspend fun loadModelWithFallback(model: ModelMetadata): Result<InferenceRuntimeConfig> {
+        val requested = requestedRuntimeConfig()
+        val modelFile = File(model.absolutePath)
+        val firstLoad = engine.load(modelFile, requested)
+        if (firstLoad.isSuccess) {
+            mutableState.update {
+                it.copy(runtimeStatus = InferenceRuntimeStatus(requested = requested, active = requested))
+            }
+            return Result.success(requested)
+        }
+
+        val firstError = firstLoad.exceptionOrNull()
+        if (requested.backend == InferenceBackend.CPU) {
+            return Result.failure(firstError ?: IllegalStateException("Model load failed"))
+        }
+
+        engine.release()
+        val fallback = InferenceRuntimeConfig.defaultCpu
+        val fallbackLoad = engine.load(modelFile, fallback)
+        if (fallbackLoad.isSuccess) {
+            val reason = "${requested.label} failed: ${firstError?.message ?: "Model load failed"}. Fell back to CPU."
+            mutableState.update {
+                it.copy(
+                    runtimeStatus = InferenceRuntimeStatus(
+                        requested = requested,
+                        active = fallback,
+                        fallbackReason = reason
+                    )
+                )
+            }
+            return Result.success(fallback)
+        }
+
+        val fallbackError = fallbackLoad.exceptionOrNull()
+        return Result.failure(
+            IllegalStateException(
+                "${requested.label} failed: ${firstError?.message ?: "Model load failed"}. " +
+                    "CPU fallback failed: ${fallbackError?.message ?: "Model load failed"}"
+            )
+        )
     }
 
     private fun updateChatState(transform: (AppState) -> AppState) {
