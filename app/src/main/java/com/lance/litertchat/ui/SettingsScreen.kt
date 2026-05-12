@@ -37,6 +37,7 @@ fun SettingsScreen(
     onResetDefaultFormatter: () -> Unit,
     onStreamResponsesChanged: (Boolean) -> Unit,
     onGpuBackendChanged: (Boolean) -> Unit,
+    onNpuBackendChanged: (Boolean) -> Unit,
     onGemmaMtpChanged: (Boolean) -> Unit
 ) {
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -64,6 +65,12 @@ fun SettingsScreen(
                     help = "Run LiteRT-LM with the Android GPU backend when available.",
                     checked = state.gpuBackendEnabled,
                     onCheckedChange = onGpuBackendChanged
+                )
+                SettingSwitchRow(
+                    title = "Use NPU backend",
+                    help = "Try the experimental LiteRT-LM NPU backend for supported devices and models.",
+                    checked = state.npuBackendEnabled,
+                    onCheckedChange = onNpuBackendChanged
                 )
                 SettingSwitchRow(
                     title = "Enable Gemma 4 MTP",

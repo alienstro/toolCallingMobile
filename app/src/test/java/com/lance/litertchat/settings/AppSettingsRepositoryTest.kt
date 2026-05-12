@@ -19,6 +19,7 @@ class AppSettingsRepositoryTest {
 
         assertTrue(settings.streamResponsesEnabled)
         assertFalse(settings.gpuBackendEnabled)
+        assertFalse(settings.npuBackendEnabled)
         assertFalse(settings.gemmaMtpEnabled)
     }
 
@@ -36,6 +37,7 @@ class AppSettingsRepositoryTest {
         writeSettingsProperties(
             "streamResponsesEnabled" to "invalid",
             "gpuBackendEnabled" to "invalid",
+            "npuBackendEnabled" to "invalid",
             "gemmaMtpEnabled" to "invalid"
         )
         val repository = AppSettingsRepository(temporaryFolder.root)
@@ -44,6 +46,7 @@ class AppSettingsRepositoryTest {
 
         assertTrue(settings.streamResponsesEnabled)
         assertFalse(settings.gpuBackendEnabled)
+        assertFalse(settings.npuBackendEnabled)
         assertFalse(settings.gemmaMtpEnabled)
     }
 
@@ -52,6 +55,7 @@ class AppSettingsRepositoryTest {
         writeSettingsProperties(
             "streamResponsesEnabled" to "true",
             "gpuBackendEnabled" to "false",
+            "npuBackendEnabled" to "true",
             "gemmaMtpEnabled" to "true"
         )
         val repository = AppSettingsRepository(temporaryFolder.root)
@@ -59,6 +63,7 @@ class AppSettingsRepositoryTest {
         val settings = repository.load()
 
         assertFalse(settings.gpuBackendEnabled)
+        assertTrue(settings.npuBackendEnabled)
         assertFalse(settings.gemmaMtpEnabled)
     }
 
@@ -69,6 +74,32 @@ class AppSettingsRepositoryTest {
         repository.setGpuBackendEnabled(true)
 
         assertTrue(repository.load().gpuBackendEnabled)
+    }
+
+    @Test
+    fun savesNpuToggleAndDisablesGpuMtp() {
+        val repository = AppSettingsRepository(temporaryFolder.root)
+        repository.setGpuBackendEnabled(true)
+        repository.setGemmaMtpEnabled(true)
+
+        repository.setNpuBackendEnabled(true)
+
+        val settings = repository.load()
+        assertTrue(settings.npuBackendEnabled)
+        assertFalse(settings.gpuBackendEnabled)
+        assertFalse(settings.gemmaMtpEnabled)
+    }
+
+    @Test
+    fun enablingGpuDisablesNpu() {
+        val repository = AppSettingsRepository(temporaryFolder.root)
+        repository.setNpuBackendEnabled(true)
+
+        repository.setGpuBackendEnabled(true)
+
+        val settings = repository.load()
+        assertTrue(settings.gpuBackendEnabled)
+        assertFalse(settings.npuBackendEnabled)
     }
 
     @Test

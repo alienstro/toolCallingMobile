@@ -2,7 +2,8 @@ package com.lance.litertchat.inference
 
 enum class InferenceBackend {
     CPU,
-    GPU
+    GPU,
+    NPU
 }
 
 data class InferenceRuntimeConfig(
@@ -19,6 +20,7 @@ data class InferenceRuntimeConfig(
         get() = when {
             backend == InferenceBackend.GPU && speculativeDecodingEnabled -> "GPU + MTP"
             backend == InferenceBackend.GPU -> "GPU"
+            backend == InferenceBackend.NPU -> "NPU"
             else -> "CPU"
         }
 

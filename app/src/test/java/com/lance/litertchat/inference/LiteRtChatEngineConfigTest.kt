@@ -66,6 +66,22 @@ class LiteRtChatEngineConfigTest {
     }
 
     @Test
+    fun npuConfigMapsToNpuBackendWithoutSpeculativeDecoding() {
+        val mapped = LiteRtBackendConfig.from(
+            InferenceRuntimeConfig(
+                backend = InferenceBackend.NPU,
+                speculativeDecodingEnabled = false
+            ),
+            npuNativeLibraryDir = "/native/lib"
+        )
+
+        val backend = mapped.backend
+        assertTrue(backend is Backend.NPU)
+        assertTrue((backend as Backend.NPU).nativeLibraryDir == "/native/lib")
+        assertFalse(mapped.speculativeDecodingEnabled)
+    }
+
+    @Test
     fun loadResetsSpeculativeFlagWhenEngineConstructionFails() = runTest {
         val modelFile = temporaryModelFile()
         val engine = LiteRtChatEngine(

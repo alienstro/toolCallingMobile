@@ -41,6 +41,7 @@ interface ChatEngine {
 @OptIn(ExperimentalApi::class)
 class LiteRtChatEngine : ChatEngine {
     private val engineFactory: LiteRtEngineHandleFactory
+    private val npuNativeLibraryDir: String
     private val speculativeFlagOwner = Any()
     private val lock = Any()
     private var engine: LiteRtEngineHandle? = null
@@ -48,12 +49,17 @@ class LiteRtChatEngine : ChatEngine {
     private var loadedModelPath: String? = null
     private var loadedRuntimeConfig: InferenceRuntimeConfig? = null
 
-    constructor() {
+    constructor(npuNativeLibraryDir: String = "") {
         engineFactory = RealLiteRtEngineHandleFactory
+        this.npuNativeLibraryDir = npuNativeLibraryDir
     }
 
-    internal constructor(engineFactory: LiteRtEngineHandleFactory) {
+    internal constructor(
+        engineFactory: LiteRtEngineHandleFactory,
+        npuNativeLibraryDir: String = ""
+    ) {
         this.engineFactory = engineFactory
+        this.npuNativeLibraryDir = npuNativeLibraryDir
     }
 
     override suspend fun load(
@@ -83,7 +89,10 @@ class LiteRtChatEngine : ChatEngine {
                     release()
                 }
 
-                val backendConfig = LiteRtBackendConfig.from(runtimeConfig)
+                val backendConfig = LiteRtBackendConfig.from(
+                    config = runtimeConfig,
+                    npuNativeLibraryDir = npuNativeLibraryDir
+                )
                 setSpeculativeFlagOwner(
                     owner = speculativeFlagOwner,
                     enabled = backendConfig.speculativeDecodingEnabled
@@ -367,11 +376,15 @@ internal data class LiteRtBackendConfig(
     val speculativeDecodingEnabled: Boolean
 ) {
     companion object {
-        fun from(config: InferenceRuntimeConfig): LiteRtBackendConfig =
+        fun from(
+            config: InferenceRuntimeConfig,
+            npuNativeLibraryDir: String = ""
+        ): LiteRtBackendConfig =
             LiteRtBackendConfig(
                 backend = when (config.backend) {
                     InferenceBackend.CPU -> Backend.CPU()
                     InferenceBackend.GPU -> Backend.GPU()
+                    InferenceBackend.NPU -> Backend.NPU(nativeLibraryDir = npuNativeLibraryDir)
                 },
                 speculativeDecodingEnabled = config.speculativeDecodingEnabled
             )

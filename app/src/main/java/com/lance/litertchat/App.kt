@@ -46,6 +46,7 @@ import com.lance.litertchat.ui.AppTheme
 import com.lance.litertchat.ui.AppViewModel
 import com.lance.litertchat.ui.ChatScreen
 import com.lance.litertchat.ui.DiagnosticsScreen
+import com.lance.litertchat.inference.LiteRtChatEngine
 import com.lance.litertchat.ui.ModelManagerScreen
 import com.lance.litertchat.ui.PillTone
 import com.lance.litertchat.ui.SettingsScreen
@@ -142,6 +143,7 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                             onResetDefaultFormatter = appViewModel::resetDefaultPromptFormatter,
                             onStreamResponsesChanged = appViewModel::setStreamResponsesEnabled,
                             onGpuBackendChanged = appViewModel::setGpuBackendEnabled,
+                            onNpuBackendChanged = appViewModel::setNpuBackendEnabled,
                             onGemmaMtpChanged = appViewModel::setGemmaMtpEnabled
                         )
                     }
@@ -269,7 +271,12 @@ private fun rememberAppViewModel(): AppViewModel {
                 require(modelClass.isAssignableFrom(AppViewModel::class.java)) {
                     "Unknown ViewModel class ${modelClass.name}"
                 }
-                return AppViewModel(ModelRepository(context.filesDir)) as T
+                return AppViewModel(
+                    repository = ModelRepository(context.filesDir),
+                    engine = LiteRtChatEngine(
+                        npuNativeLibraryDir = context.applicationInfo.nativeLibraryDir.orEmpty()
+                    )
+                ) as T
             }
         }
     )

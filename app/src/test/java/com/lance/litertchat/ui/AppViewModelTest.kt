@@ -581,6 +581,75 @@ class AppViewModelTest {
     }
 
     @Test
+    fun sendMessageRequestsNpuWhenSettingIsEnabled() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setNpuBackendEnabled(true)
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                modelFile.absolutePath to InferenceRuntimeConfig(
+                    backend = InferenceBackend.NPU,
+                    speculativeDecodingEnabled = false
+                )
+            ),
+            engine.loadRequests
+        )
+    }
+
+    @Test
+    fun npuLoadFailureFallsBackToCpu() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setNpuBackendEnabled(true)
+        val npuConfig = InferenceRuntimeConfig(
+            backend = InferenceBackend.NPU,
+            speculativeDecodingEnabled = false
+        )
+        val engine = FakeChatEngine(
+            response = "CPU answer",
+            loadFailuresByConfig = mapOf(
+                npuConfig to IllegalStateException("NPU delegate unavailable")
+            )
+        )
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                modelFile.absolutePath to npuConfig,
+                modelFile.absolutePath to InferenceRuntimeConfig.defaultCpu
+            ),
+            engine.loadRequests
+        )
+        assertEquals(
+            "NPU is not supported for this model/device, so the app fell back to CPU. Details: NPU delegate unavailable",
+            viewModel.state.value.runtimeStatus.fallbackReason
+        )
+    }
+
+    @Test
     fun gpuMtpLoadFailureFallsBackToCpu() = runTest(mainDispatcherRule.testDispatcher) {
         val modelFile = File(temporaryFolder.root, "model.litertlm")
         modelFile.writeText("model")
@@ -653,6 +722,19 @@ class AppViewModelTest {
 
         assertEquals(gpuMtpConfig, viewModel.state.value.runtimeStatus.requested)
         assertEquals(InferenceRuntimeConfig.defaultCpu, viewModel.state.value.runtimeStatus.active)
+
+        viewModel.setNpuBackendEnabled(true)
+
+        assertEquals(
+            InferenceRuntimeConfig(
+                backend = InferenceBackend.NPU,
+                speculativeDecodingEnabled = false
+            ),
+            viewModel.state.value.runtimeStatus.requested
+        )
+        assertFalse(viewModel.state.value.gpuBackendEnabled)
+        assertFalse(viewModel.state.value.gemmaMtpEnabled)
+        assertTrue(viewModel.state.value.npuBackendEnabled)
     }
 
     @Test

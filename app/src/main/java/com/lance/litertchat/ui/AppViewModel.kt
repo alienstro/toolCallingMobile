@@ -65,6 +65,7 @@ data class AppState(
     val activePromptFormatterId: String = PromptFormatterRepository.DEFAULT_FORMATTER_ID,
     val streamResponsesEnabled: Boolean = true,
     val gpuBackendEnabled: Boolean = false,
+    val npuBackendEnabled: Boolean = false,
     val gemmaMtpEnabled: Boolean = false,
     val runtimeStatus: InferenceRuntimeStatus = InferenceRuntimeStatus()
 ) {
@@ -104,6 +105,7 @@ class AppViewModel(
             activePromptFormatterId = initialPromptFormatterState.activeFormatterId,
             streamResponsesEnabled = initialSettings.streamResponsesEnabled,
             gpuBackendEnabled = initialSettings.gpuBackendEnabled,
+            npuBackendEnabled = initialSettings.npuBackendEnabled,
             gemmaMtpEnabled = initialSettings.gemmaMtpEnabled,
             runtimeStatus = InferenceRuntimeStatus(
                 requested = runtimeConfigForSettings(initialSettings)
@@ -510,6 +512,11 @@ class AppViewModel(
         refreshSettingsState()
     }
 
+    fun setNpuBackendEnabled(enabled: Boolean) {
+        appSettingsRepository.setNpuBackendEnabled(enabled)
+        refreshSettingsState()
+    }
+
     fun setGemmaMtpEnabled(enabled: Boolean) {
         appSettingsRepository.setGemmaMtpEnabled(enabled)
         refreshSettingsState()
@@ -579,6 +586,7 @@ class AppViewModel(
             it.copy(
                 streamResponsesEnabled = settings.streamResponsesEnabled,
                 gpuBackendEnabled = settings.gpuBackendEnabled,
+                npuBackendEnabled = settings.npuBackendEnabled,
                 gemmaMtpEnabled = settings.gemmaMtpEnabled,
                 runtimeStatus = previousRuntimeStatus.copy(
                     requested = requestedRuntime,
@@ -597,13 +605,16 @@ class AppViewModel(
     }
 
     private fun runtimeConfigForSettings(settings: AppSettings): InferenceRuntimeConfig {
-        return if (settings.gpuBackendEnabled) {
-            InferenceRuntimeConfig(
+        return when {
+            settings.npuBackendEnabled -> InferenceRuntimeConfig(
+                backend = InferenceBackend.NPU,
+                speculativeDecodingEnabled = false
+            )
+            settings.gpuBackendEnabled -> InferenceRuntimeConfig(
                 backend = InferenceBackend.GPU,
                 speculativeDecodingEnabled = settings.gemmaMtpEnabled
             )
-        } else {
-            InferenceRuntimeConfig.defaultCpu
+            else -> InferenceRuntimeConfig.defaultCpu
         }
     }
 
