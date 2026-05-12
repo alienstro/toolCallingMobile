@@ -2,8 +2,8 @@ package com.lance.litertchat.model
 
 object ModelConstants {
     const val DEFAULT_MODEL_URL =
-        "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
-    const val MODEL_EXTENSION = ".litertlm"
+        "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf"
+    const val MODEL_EXTENSION = ".gguf"
 
     fun hardwareWarningForFileName(fileName: String): String? {
         val lower = fileName.lowercase()

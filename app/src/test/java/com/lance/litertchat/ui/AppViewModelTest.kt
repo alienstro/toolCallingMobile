@@ -7,6 +7,7 @@ import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.prompt.PromptFormatterRepository
 import com.lance.litertchat.settings.AppSettingsRepository
 import com.lance.litertchat.ui.chat.ChatHistoryRepository
+import com.lance.litertchat.ui.chat.ChatHistoryState
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -103,17 +104,17 @@ class AppViewModelTest {
         }
         val repository = ModelRepository(temporaryFolder.root)
         val viewModel = testViewModel(repository, downloader)
-        val url = "https://huggingface.co/repo/blob/main/model.litertlm?download=true"
+        val url = "https://huggingface.co/repo/blob/main/model.gguf?download=true"
 
         viewModel.downloadModel(url)
         advanceUntilIdle()
 
         val activeModel = viewModel.state.value.activeModel
-        val modelFile = File(repository.modelDirectory(), "model.litertlm")
-        assertEquals("model.litertlm", activeModel?.fileName)
+        val modelFile = File(repository.modelDirectory(), "model.gguf")
+        assertEquals("model.gguf", activeModel?.fileName)
         assertEquals(modelFile.absolutePath, activeModel?.absolutePath)
         assertEquals("download", activeModel?.source)
-        assertEquals("https://huggingface.co/repo/resolve/main/model.litertlm?download=true", activeModel?.sourceUrl)
+        assertEquals("https://huggingface.co/repo/resolve/main/model.gguf?download=true", activeModel?.sourceUrl)
         assertEquals(content.size.toLong(), activeModel?.sizeBytes)
         assertEquals(content.decodeToString(), modelFile.readText())
         assertEquals(activeModel, repository.loadMetadata())
@@ -126,14 +127,14 @@ class AppViewModelTest {
     @Test
     fun deleteModelDeletesRepositoryModelAndClearsState() = runTest(mainDispatcherRule.testDispatcher) {
         val repository = ModelRepository(temporaryFolder.root)
-        val modelFile = File(repository.modelDirectory(), "model.litertlm")
+        val modelFile = File(repository.modelDirectory(), "model.gguf")
         modelFile.writeText("model")
         repository.saveMetadata(
             ModelMetadata(
                 fileName = modelFile.name,
                 absolutePath = modelFile.absolutePath,
                 source = "download",
-                sourceUrl = "https://example.com/model.litertlm",
+                sourceUrl = "https://example.com/model.gguf",
                 sizeBytes = modelFile.length(),
                 installedAtEpochMillis = 1000L
             )
@@ -156,7 +157,7 @@ class AppViewModelTest {
         }
         val repository = ModelRepository(temporaryFolder.root)
         val viewModel = testViewModel(repository, downloader)
-        val url = "https://example.com/model.litertlm"
+        val url = "https://example.com/model.gguf"
 
         viewModel.downloadModel(url)
         viewModel.downloadModel(url)
@@ -164,7 +165,7 @@ class AppViewModelTest {
 
         assertEquals(listOf(url), downloader.requestedUrls)
         assertFalse(viewModel.state.value.isDownloading)
-        assertEquals("model.litertlm", viewModel.state.value.activeModel?.fileName)
+        assertEquals("model.gguf", viewModel.state.value.activeModel?.fileName)
     }
 
     @Test
@@ -176,20 +177,20 @@ class AppViewModelTest {
             destination.writeText("new model")
         }
         val repository = ModelRepository(temporaryFolder.root)
-        val existingFile = File(repository.modelDirectory(), "existing.litertlm")
+        val existingFile = File(repository.modelDirectory(), "existing.gguf")
         existingFile.writeText("existing model")
         val existingMetadata = ModelMetadata(
             fileName = existingFile.name,
             absolutePath = existingFile.absolutePath,
             source = "download",
-            sourceUrl = "https://example.com/existing.litertlm",
+            sourceUrl = "https://example.com/existing.gguf",
             sizeBytes = existingFile.length(),
             installedAtEpochMillis = 1000L
         )
         repository.saveMetadata(existingMetadata)
         val viewModel = testViewModel(repository, downloader)
 
-        viewModel.downloadModel("https://example.com/new-model.litertlm")
+        viewModel.downloadModel("https://example.com/new-model.gguf")
         viewModel.deleteModel()
 
         assertEquals(existingMetadata, repository.loadMetadata())
@@ -197,7 +198,7 @@ class AppViewModelTest {
 
         releaseDownload.complete(Unit)
         advanceUntilIdle()
-        assertEquals("new-model.litertlm", viewModel.state.value.activeModel?.fileName)
+        assertEquals("new-model.gguf", viewModel.state.value.activeModel?.fileName)
     }
 
     @Test
@@ -208,7 +209,7 @@ class AppViewModelTest {
             downloader = FakeDownloader { _, _, _ -> error("network unavailable") }
         )
 
-        viewModel.downloadModel("https://example.com/model.litertlm")
+        viewModel.downloadModel("https://example.com/model.gguf")
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isDownloading)
@@ -228,11 +229,11 @@ class AppViewModelTest {
             }
         )
 
-        viewModel.downloadModel("https://example.com/my%20model.litertlm?x=y")
+        viewModel.downloadModel("https://example.com/my%20model.gguf?x=y")
         advanceUntilIdle()
 
-        assertEquals("my model.litertlm", viewModel.state.value.activeModel?.fileName)
-        assertTrue(File(repository.modelDirectory(), "my model.litertlm").exists())
+        assertEquals("my model.gguf", viewModel.state.value.activeModel?.fileName)
+        assertTrue(File(repository.modelDirectory(), "my model.gguf").exists())
     }
 
     @Test
@@ -248,16 +249,16 @@ class AppViewModelTest {
 
     @Test
     fun sendMessageTitlesNewChatFromFirstUserPrompt() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
         val viewModel = testViewModel(repository, engine = FakeChatEngine(response = "Hi"))
 
-        viewModel.sendMessage(" Explain how LiteRT chat state works on mobile ")
+        viewModel.sendMessage(" Explain RunAnywhere chat state on mobile ")
         advanceUntilIdle()
 
-        assertEquals("Explain how LiteRT chat state works on mobile", viewModel.state.value.activeChatSession?.title)
+        assertEquals("Explain RunAnywhere chat state on mobile", viewModel.state.value.activeChatSession?.title)
         assertEquals(
             viewModel.state.value.messages,
             viewModel.state.value.activeChatSession?.messages
@@ -266,7 +267,7 @@ class AppViewModelTest {
 
     @Test
     fun newChatCreatesBlankActiveSessionAndKeepsOldChatInHistory() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -285,7 +286,7 @@ class AppViewModelTest {
 
     @Test
     fun selectChatSessionRestoresOldMessages() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -309,7 +310,7 @@ class AppViewModelTest {
 
     @Test
     fun deleteChatSessionRemovesItAndSelectsAnotherSession() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -331,7 +332,7 @@ class AppViewModelTest {
 
     @Test
     fun chatHistoryPersistsAcrossViewModelInstances() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -383,7 +384,7 @@ class AppViewModelTest {
 
     @Test
     fun sendMessageLoadsModelAndAddsAssistantResponse() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val metadata = installedModel(path = modelFile.absolutePath)
         val repository = ModelRepository(temporaryFolder.root)
@@ -409,7 +410,7 @@ class AppViewModelTest {
 
     @Test
     fun sendMessagePrependsActiveFormatterOnlyForModelPrompt() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val metadata = installedModel(path = modelFile.absolutePath)
         val repository = ModelRepository(temporaryFolder.root)
@@ -489,7 +490,7 @@ class AppViewModelTest {
 
     @Test
     fun sendMessageShowsLoadingAssistantWhileGenerating() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -524,7 +525,7 @@ class AppViewModelTest {
 
     @Test
     fun sendMessageStreamsPartialAssistantResponseWhenEnabled() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -542,8 +543,32 @@ class AppViewModelTest {
     }
 
     @Test
+    fun streamingPartialResponsesDoNotPersistChatHistoryUntilFinalResponse() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val chatHistoryRepository = CountingChatHistoryRepository(temporaryFolder.root)
+        val engine = FakeChatEngine(streamingResponses = listOf("H", "He", "Hel", "Hell", "Hello"))
+        val viewModel = testViewModel(
+            repository = repository,
+            chatHistoryRepository = chatHistoryRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("Hi")
+        advanceUntilIdle()
+
+        assertEquals(2, chatHistoryRepository.saveCount)
+        assertEquals(
+            listOf(ChatMessage("user", "Hi"), ChatMessage("assistant", "Hello")),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
     fun sendMessageAccumulatesStreamingDeltas() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -561,7 +586,7 @@ class AppViewModelTest {
 
     @Test
     fun sendMessageUsesBlockingGenerationWhenStreamingDisabled() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -597,7 +622,7 @@ class AppViewModelTest {
 
     @Test
     fun stopGenerationCancelsActiveResponseAndRemovesLoadingAssistant() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val repository = ModelRepository(temporaryFolder.root)
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
@@ -623,7 +648,7 @@ class AppViewModelTest {
 
     @Test
     fun sendMessageStoresGenerationStatsForAssistantResponse() = runTest(mainDispatcherRule.testDispatcher) {
-        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        val modelFile = File(temporaryFolder.root, "model.gguf")
         modelFile.writeText("model")
         val metadata = installedModel(path = modelFile.absolutePath)
         val repository = ModelRepository(temporaryFolder.root)
@@ -684,10 +709,10 @@ class AppViewModelTest {
     }
 
     private fun installedModel(
-        path: String = "/models/gemma-4-E2B-it.litertlm"
+        path: String = "/models/smollm2-360m-instruct-q8_0.gguf"
     ): ModelMetadata =
         ModelMetadata(
-            fileName = "gemma-4-E2B-it.litertlm",
+            fileName = "smollm2-360m-instruct-q8_0.gguf",
             absolutePath = path,
             source = "local",
             sourceUrl = null,
@@ -736,6 +761,15 @@ private class FakeDownloader(
         requestedUrls += rawUrl
         onDownload(rawUrl, destination, onProgress)
         return destination
+    }
+}
+
+private class CountingChatHistoryRepository(rootDir: File) : ChatHistoryRepository(rootDir) {
+    var saveCount = 0
+
+    override fun saveState(state: ChatHistoryState) {
+        saveCount += 1
+        super.saveState(state)
     }
 }
 

@@ -8,22 +8,22 @@ import org.junit.Test
 
 class ModelConstantsTest {
     @Test
-    fun defaultModelUrlMatchesGemmaLiteRtLmResolveUrl() {
+    fun defaultModelUrlMatchesSmolLmGgufResolveUrl() {
         assertEquals(
-            "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf",
             ModelConstants.DEFAULT_MODEL_URL
         )
     }
 
     @Test
-    fun modelExtensionIsLiteRtLm() {
-        assertEquals(".litertlm", ModelConstants.MODEL_EXTENSION)
+    fun modelExtensionIsGguf() {
+        assertEquals(".gguf", ModelConstants.MODEL_EXTENSION)
     }
 
     @Test
     fun sm8750ModelFileNameReturnsHardwareWarning() {
         val warning = ModelConstants.hardwareWarningForFileName(
-            "gemma-4-E2B-it_qualcomm_sm8750.litertlm"
+            "model_qualcomm_sm8750.gguf"
         )
 
         assertNotNull(warning)
@@ -34,7 +34,7 @@ class ModelConstantsTest {
     @Test
     fun gcs8275ModelFileNameReturnsHardwareWarning() {
         val warning = ModelConstants.hardwareWarningForFileName(
-            "gemma-4-E2B-it_qualcomm_gcs8275.litertlm"
+            "model_qualcomm_gcs8275.gguf"
         )
 
         assertNotNull(warning)
@@ -43,6 +43,6 @@ class ModelConstantsTest {
 
     @Test
     fun genericModelFileNameDoesNotReturnHardwareWarning() {
-        assertNull(ModelConstants.hardwareWarningForFileName("gemma-4-E2B-it.litertlm"))
+        assertNull(ModelConstants.hardwareWarningForFileName("smollm2-360m-instruct-q8_0.gguf"))
     }
 }

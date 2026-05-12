@@ -7,7 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.lance.litertchat.download.ModelDownloadClient
 import com.lance.litertchat.download.ModelDownloader
 import com.lance.litertchat.inference.ChatEngine
-import com.lance.litertchat.inference.LiteRtChatEngine
+import com.lance.litertchat.inference.RunAnywhereChatEngine
 import com.lance.litertchat.model.ModelConstants
 import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
@@ -79,7 +79,7 @@ class AppViewModel(
     private val appSettingsRepository: AppSettingsRepository = AppSettingsRepository(repository.rootDir),
     private val chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(repository.rootDir),
     private val downloader: ModelDownloadClient = ModelDownloader(),
-    private val engine: ChatEngine = LiteRtChatEngine(),
+    private val engine: ChatEngine = RunAnywhereChatEngine(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nanoTimeProvider: () -> Long = System::nanoTime
 ) : ViewModel() {
@@ -331,7 +331,7 @@ class AppViewModel(
                                     )
                                     streamedText.clear()
                                     streamedText.append(displayText)
-                                    updateChatState {
+                                    updateLiveChatState {
                                         val updated = it.updateLoadingAssistant(displayText)
                                         updated.withActiveChatMessages(updated.messages)
                                     }
@@ -490,6 +490,10 @@ class AppViewModel(
     private fun updateChatState(transform: (AppState) -> AppState) {
         mutableState.value = transform(mutableState.value)
         persistChatHistory()
+    }
+
+    private fun updateLiveChatState(transform: (AppState) -> AppState) {
+        mutableState.value = transform(mutableState.value)
     }
 
     private fun persistChatHistory() {

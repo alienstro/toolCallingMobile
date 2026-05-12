@@ -77,7 +77,7 @@ class ModelDownloader(
 
             require(uri.scheme.equals("https", ignoreCase = true)) { "Model URL must use HTTPS." }
             require(uri.path.endsWith(ModelConstants.MODEL_EXTENSION)) {
-                "Model URL must point to a .litertlm file."
+                "Model URL must point to a ${ModelConstants.MODEL_EXTENSION} file."
             }
 
             if (!isHuggingFaceHost(uri.host)) {

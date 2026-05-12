@@ -42,7 +42,8 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
+    implementation("io.github.sanchitmonga22:runanywhere-sdk-android:0.20.6")
+    implementation("io.github.sanchitmonga22:runanywhere-llamacpp-android:0.20.6")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

@@ -59,7 +59,7 @@ fun ModelManagerScreen(
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = state.activeModel?.absolutePath ?: "Download or import a .litertlm model.",
+                            text = state.activeModel?.absolutePath ?: "Download or import a .gguf model.",
                             color = AppMuted,
                             maxLines = 2
                         )

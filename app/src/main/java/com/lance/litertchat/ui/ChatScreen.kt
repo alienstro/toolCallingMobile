@@ -86,7 +86,7 @@ fun ChatScreen(
                     AssistantBubble {
                         Text(
                             text = if (state.activeModel == null) {
-                                "Install or import a LiteRT model, then start chatting."
+                                "Install or import a GGUF model, then start chatting."
                             } else {
                                 "Ask about the active model, formatter behavior, or anything you want to test."
                             },

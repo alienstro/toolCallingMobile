@@ -51,7 +51,7 @@ import com.lance.litertchat.ui.SettingsScreen
 import com.lance.litertchat.ui.StatusDot
 
 @Composable
-fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
+fun RunAnywhereChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
     val context = LocalContext.current.applicationContext
     val state by appViewModel.state.collectAsState()
     val navController = rememberNavController()

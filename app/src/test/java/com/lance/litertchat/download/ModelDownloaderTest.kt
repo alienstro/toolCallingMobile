@@ -29,37 +29,37 @@ class ModelDownloaderTest {
 
     @Test
     fun trimsUrlBeforeValidation() {
-        val input = "  https://example.com/model.litertlm  "
+        val input = "  https://example.com/model.gguf  "
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
-        assertEquals("https://example.com/model.litertlm", result)
+        assertEquals("https://example.com/model.gguf", result)
     }
 
     @Test
     fun convertsHuggingFaceBlobUrlToResolveUrl() {
-        val input = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/blob/main/gemma-4-E2B-it.litertlm"
+        val input = "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/blob/main/smollm2-360m-instruct-q8_0.gguf"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
         assertEquals(
-            "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm",
+            "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf",
             result
         )
     }
 
     @Test
     fun convertsHuggingFaceSubdomainBlobUrlToResolveUrl() {
-        val input = "https://cdn.huggingface.co/repo/blob/main/model.litertlm"
+        val input = "https://cdn.huggingface.co/repo/blob/main/model.gguf"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
-        assertEquals("https://cdn.huggingface.co/repo/resolve/main/model.litertlm", result)
+        assertEquals("https://cdn.huggingface.co/repo/resolve/main/model.gguf", result)
     }
 
     @Test
     fun keepsNonHuggingFaceBlobUrlUnchanged() {
-        val input = "https://example.com/repo/blob/main/model.litertlm"
+        val input = "https://example.com/repo/blob/main/model.gguf"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
@@ -68,7 +68,7 @@ class ModelDownloaderTest {
 
     @Test
     fun keepsDirectResolveUrlUnchanged() {
-        val input = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
+        val input = "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/main/smollm2-360m-instruct-q8_0.gguf"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
@@ -77,25 +77,25 @@ class ModelDownloaderTest {
 
     @Test
     fun preservesQueryWhenNormalizingHuggingFaceBlobUrl() {
-        val input = "https://huggingface.co/repo/blob/main/model.litertlm?download=true"
+        val input = "https://huggingface.co/repo/blob/main/model.gguf?download=true"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
-        assertEquals("https://huggingface.co/repo/resolve/main/model.litertlm?download=true", result)
+        assertEquals("https://huggingface.co/repo/resolve/main/model.gguf?download=true", result)
     }
 
     @Test
     fun preservesFragmentWhenNormalizingHuggingFaceBlobUrl() {
-        val input = "https://huggingface.co/repo/blob/main/model.litertlm#section"
+        val input = "https://huggingface.co/repo/blob/main/model.gguf#section"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
-        assertEquals("https://huggingface.co/repo/resolve/main/model.litertlm#section", result)
+        assertEquals("https://huggingface.co/repo/resolve/main/model.gguf#section", result)
     }
 
     @Test
     fun validatesExtensionUsingPathBeforeQueryAndFragment() {
-        val input = "https://example.com/model.litertlm?download=model.bin#readme"
+        val input = "https://example.com/model.gguf?download=model.bin#readme"
 
         val result = ModelDownloader.normalizeModelUrl(input)
 
@@ -104,7 +104,7 @@ class ModelDownloaderTest {
 
     @Test
     fun requiresHttpsScheme() {
-        val input = "http://example.com/model.litertlm"
+        val input = "http://example.com/model.gguf"
 
         val result = runCatching { ModelDownloader.normalizeModelUrl(input) }
 
@@ -114,7 +114,7 @@ class ModelDownloaderTest {
 
     @Test
     fun rejectsMalformedHttpsUrl() {
-        val input = "https://[invalid-host]/model.litertlm"
+        val input = "https://[invalid-host]/model.gguf"
 
         val result = runCatching { ModelDownloader.normalizeModelUrl(input) }
 
@@ -123,13 +123,13 @@ class ModelDownloaderTest {
     }
 
     @Test
-    fun requiresLitertLmExtension() {
+    fun requiresGgufExtension() {
         val input = "https://example.com/model.bin"
 
         val result = runCatching { ModelDownloader.normalizeModelUrl(input) }
 
         assertTrue(result.isFailure)
-        assertEquals("Model URL must point to a .litertlm file.", result.exceptionOrNull()?.message)
+        assertEquals("Model URL must point to a .gguf file.", result.exceptionOrNull()?.message)
     }
 
     @Test
@@ -137,10 +137,10 @@ class ModelDownloaderTest {
         val content = byteArrayOf(0, 1, 2, 3, 4, 127, -128, -1)
         val (server, client) = startHttpsServer()
         server.enqueue(MockResponse().setBody(okio.Buffer().write(content)))
-        val destination = File(temporaryFolder.root, "models/model.litertlm")
+        val destination = File(temporaryFolder.root, "models/model.gguf")
         val progress = mutableListOf<Pair<Long, Long?>>()
 
-        val result = ModelDownloader(client).download(server.url("/model.litertlm").toString(), destination) { downloaded, total ->
+        val result = ModelDownloader(client).download(server.url("/model.gguf").toString(), destination) { downloaded, total ->
             progress += downloaded to total
         }
 
@@ -155,10 +155,10 @@ class ModelDownloaderTest {
     fun httpFailureThrowsAndDoesNotCreateFinalDestination() = runBlocking {
         val (server, client) = startHttpsServer()
         server.enqueue(MockResponse().setResponseCode(500))
-        val destination = File(temporaryFolder.root, "model.litertlm")
+        val destination = File(temporaryFolder.root, "model.gguf")
 
         val result = runCatching {
-            ModelDownloader(client).download(server.url("/model.litertlm").toString(), destination) { _, _ -> }
+            ModelDownloader(client).download(server.url("/model.gguf").toString(), destination) { _, _ -> }
         }
 
         assertTrue(result.isFailure)
@@ -170,12 +170,12 @@ class ModelDownloaderTest {
     fun emptySuccessBodyFailsAndPreservesExistingDestination() = runBlocking {
         val (server, client) = startHttpsServer()
         server.enqueue(MockResponse().setBody(""))
-        val destination = File(temporaryFolder.root, "model.litertlm")
+        val destination = File(temporaryFolder.root, "model.gguf")
         destination.writeText("existing model")
         val tempFile = File(destination.parentFile, "${destination.name}.download")
 
         val result = runCatching {
-            ModelDownloader(client).download(server.url("/model.litertlm").toString(), destination) { _, _ -> }
+            ModelDownloader(client).download(server.url("/model.gguf").toString(), destination) { _, _ -> }
         }
 
         assertTrue(result.isFailure)
@@ -188,12 +188,12 @@ class ModelDownloaderTest {
     fun staleTempFileIsReplacedAndMovedOnSuccess() = runBlocking {
         val (server, client) = startHttpsServer()
         server.enqueue(MockResponse().setBody("fresh model"))
-        val destination = File(temporaryFolder.root, "models/model.litertlm")
+        val destination = File(temporaryFolder.root, "models/model.gguf")
         destination.parentFile?.mkdirs()
         val tempFile = File(destination.parentFile, "${destination.name}.download")
         tempFile.writeText("stale model")
 
-        ModelDownloader(client).download(server.url("/model.litertlm").toString(), destination) { _, _ -> }
+        ModelDownloader(client).download(server.url("/model.gguf").toString(), destination) { _, _ -> }
 
         assertEquals("fresh model", destination.readText())
         assertFalse(tempFile.exists())
@@ -203,13 +203,13 @@ class ModelDownloaderTest {
     fun failedProgressCallbackDeletesTempAndPreservesExistingDestination() = runBlocking {
         val (server, client) = startHttpsServer()
         server.enqueue(MockResponse().setBody("new model"))
-        val destination = File(temporaryFolder.root, "models/model.litertlm")
+        val destination = File(temporaryFolder.root, "models/model.gguf")
         destination.parentFile?.mkdirs()
         destination.writeText("existing model")
         val tempFile = File(destination.parentFile, "${destination.name}.download")
 
         val result = runCatching {
-            ModelDownloader(client).download(server.url("/model.litertlm").toString(), destination) { _, _ ->
+            ModelDownloader(client).download(server.url("/model.gguf").toString(), destination) { _, _ ->
                 throw IOException("progress failed")
             }
         }

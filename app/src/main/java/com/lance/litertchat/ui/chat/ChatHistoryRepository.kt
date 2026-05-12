@@ -20,7 +20,7 @@ data class ChatHistoryState(
         get() = sessions.firstOrNull { it.id == activeSessionId }
 }
 
-class ChatHistoryRepository(private val rootDir: File) {
+open class ChatHistoryRepository(private val rootDir: File) {
     private val settingsDir = File(rootDir, "settings")
     private val historyFile = File(settingsDir, "chat-history.properties")
 
@@ -43,7 +43,7 @@ class ChatHistoryRepository(private val rootDir: File) {
         return ChatHistoryState(sessions = sessions, activeSessionId = activeSessionId)
     }
 
-    fun saveState(state: ChatHistoryState) {
+    open fun saveState(state: ChatHistoryState) {
         settingsDir.mkdirs()
         val sessions = state.sessions.map { session ->
             session.copy(messages = session.messages.filterNot { it.isLoading })
