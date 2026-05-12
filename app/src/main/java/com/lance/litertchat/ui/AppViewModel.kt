@@ -40,7 +40,8 @@ import kotlinx.coroutines.withContext
 data class ChatMessage(
     val role: String,
     val content: String,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val imagePath: String? = null
 )
 
 data class GenerationStats(
@@ -257,6 +258,24 @@ class AppViewModel(
         }
     }
 
+    fun createChatImageFile(context: Context): File {
+        val directory = File(context.cacheDir, "chat-images").also { it.mkdirs() }
+        return File(directory, "capture-${System.currentTimeMillis()}.jpg")
+    }
+
+    fun copyChatImageFromUri(context: Context, uri: Uri): Result<String> =
+        runCatching {
+            val destination = createChatImageFile(context)
+            context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "Could not open selected image." }
+                destination.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            require(destination.length() > 0L) { "Selected image was empty." }
+            destination.absolutePath
+        }
+
     fun startNewChat() {
         if (mutableState.value.isGenerating) return
 
@@ -309,37 +328,38 @@ class AppViewModel(
         persistChatHistory()
     }
 
-    fun sendMessage(prompt: String) {
+    fun sendMessage(prompt: String, imagePath: String? = null) {
         val cleanedPrompt = prompt.trim()
-        if (cleanedPrompt.isBlank()) return
+        val cleanedImagePath = imagePath?.trim()?.takeIf { it.isNotBlank() }
+        if (cleanedPrompt.isBlank() && cleanedImagePath == null) return
 
-        val model = beginGeneration(cleanedPrompt) ?: return
+        val model = beginGeneration(cleanedPrompt, cleanedImagePath) ?: return
 
         generationJob = viewModelScope.launch {
             val startedAtNanos = nanoTimeProvider()
-            val modelPrompt = promptForModel(cleanedPrompt)
+            val modelPrompt = promptForModel(cleanedPrompt, hasImage = cleanedImagePath != null)
             val streamResponsesEnabled = mutableState.value.streamResponsesEnabled
             loadModelWithFallback(model).fold(
                 onSuccess = {
                     try {
                         val streamedText = StringBuilder()
                         val generationResult = if (streamResponsesEnabled) {
-                            engine.generateStreaming(modelPrompt) { partialResponse ->
+                            val onPartialResponse: (String) -> Unit = { partialResponse ->
                                 if (isActive) {
-                                    val displayText = mergeStreamChunk(
-                                        currentText = streamedText.toString(),
-                                        chunk = partialResponse
-                                    )
-                                    streamedText.clear()
-                                    streamedText.append(displayText)
-                                    updateChatState {
-                                        val updated = it.updateLoadingAssistant(displayText)
-                                        updated.withActiveChatMessages(updated.messages)
-                                    }
+                                    updateStreamingAssistant(streamedText, partialResponse)
                                 }
                             }
+                            if (cleanedImagePath == null) {
+                                engine.generateStreaming(modelPrompt, onPartialResponse)
+                            } else {
+                                engine.generateStreamingWithImage(modelPrompt, cleanedImagePath, onPartialResponse)
+                            }
                         } else {
-                            engine.generate(modelPrompt)
+                            if (cleanedImagePath == null) {
+                                engine.generate(modelPrompt)
+                            } else {
+                                engine.generateWithImage(modelPrompt, cleanedImagePath)
+                            }
                         }
                         generationResult.fold(
                             onSuccess = { response ->
@@ -398,7 +418,20 @@ class AppViewModel(
         }
     }
 
-    private fun beginGeneration(cleanedPrompt: String): ModelMetadata? {
+    private fun updateStreamingAssistant(streamedText: StringBuilder, partialResponse: String) {
+        val displayText = mergeStreamChunk(
+            currentText = streamedText.toString(),
+            chunk = partialResponse
+        )
+        streamedText.clear()
+        streamedText.append(displayText)
+        updateChatState {
+            val updated = it.updateLoadingAssistant(displayText)
+            updated.withActiveChatMessages(updated.messages)
+        }
+    }
+
+    private fun beginGeneration(cleanedPrompt: String, imagePath: String?): ModelMetadata? {
         var modelToUse: ModelMetadata? = null
         updateChatState { state ->
             val model = state.activeModel
@@ -407,9 +440,11 @@ class AppViewModel(
                 !state.canChat -> state
                 else -> {
                     modelToUse = model
-                    val stateWithSession = state.ensureActiveChatSession(cleanedPrompt)
+                    val stateWithSession = state.ensureActiveChatSession(
+                        cleanedPrompt.ifBlank { "Image" }
+                    )
                     val nextMessages = stateWithSession.messages +
-                        ChatMessage("user", cleanedPrompt) +
+                        ChatMessage("user", cleanedPrompt, imagePath = imagePath) +
                         loadingAssistantMessage()
 
                     stateWithSession.withActiveChatMessages(nextMessages).copy(
@@ -503,13 +538,18 @@ class AppViewModel(
     private fun loadingAssistantMessage(): ChatMessage =
         ChatMessage("assistant", "Processing...", isLoading = true)
 
-    private fun promptForModel(userPrompt: String): String {
+    private fun promptForModel(userPrompt: String, hasImage: Boolean = false): String {
         val formatter = promptFormatterRepository.loadState().activeFormatter
         val formatterBody = formatter?.body.orEmpty().trim()
-        return if (formatterBody.isBlank()) {
-            userPrompt
+        val prompt = if (userPrompt.isBlank() && hasImage) {
+            "Describe this image."
         } else {
-            "$formatterBody\n\nUser message:\n$userPrompt"
+            userPrompt
+        }
+        return if (formatterBody.isBlank()) {
+            prompt
+        } else {
+            "$formatterBody\n\nUser message:\n$prompt"
         }
     }
 

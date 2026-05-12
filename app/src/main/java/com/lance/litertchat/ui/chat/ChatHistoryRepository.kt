@@ -71,7 +71,8 @@ class ChatHistoryRepository(private val rootDir: File) {
         val messages = (0 until messageCount).mapNotNull { index ->
             val role = decode(properties.getProperty("session.$id.message.$index.role")) ?: return@mapNotNull null
             val content = decode(properties.getProperty("session.$id.message.$index.content")) ?: return@mapNotNull null
-            ChatMessage(role = role, content = content)
+            val imagePath = decode(properties.getProperty("session.$id.message.$index.imagePath"))
+            ChatMessage(role = role, content = content, imagePath = imagePath)
         }
         return ChatSession(
             id = id,
@@ -88,6 +89,9 @@ class ChatHistoryRepository(private val rootDir: File) {
         session.messages.forEachIndexed { index, message ->
             properties.setProperty("session.${session.id}.message.$index.role", encode(message.role))
             properties.setProperty("session.${session.id}.message.$index.content", encode(message.content))
+            message.imagePath?.let {
+                properties.setProperty("session.${session.id}.message.$index.imagePath", encode(it))
+            }
         }
     }
 

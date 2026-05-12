@@ -1,8 +1,13 @@
 package com.lance.litertchat.ui
 
+import android.Manifest
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,7 +43,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import coil.compose.rememberAsyncImagePainter
+import java.io.File
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -54,13 +62,17 @@ import java.util.Locale
 fun ChatScreen(
     state: AppState,
     contentPadding: PaddingValues = PaddingValues(),
-    onSend: (String) -> Unit,
+    onSend: (String, String?) -> Unit,
     onStop: () -> Unit,
     onNewChat: () -> Unit,
     onSelectChat: (String) -> Unit,
-    onDeleteChat: (String) -> Unit
+    onDeleteChat: (String) -> Unit,
+    onCreateImageCaptureFile: () -> File,
+    onImageCaptureUri: (File) -> Uri,
+    onImportImage: (Uri) -> Result<String>
 ) {
     var message by rememberSaveable { mutableStateOf("") }
+    var imagePath by rememberSaveable { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -102,12 +114,19 @@ fun ChatScreen(
         Composer(
             state = state,
             message = message,
+            imagePath = imagePath,
             onMessageChange = { message = it },
             onSend = {
-                onSend(message)
+                onSend(message, imagePath)
                 message = ""
+                imagePath = null
             },
-            onStop = onStop
+            onStop = onStop,
+            onImageSelected = { imagePath = it },
+            onClearImage = { imagePath = null },
+            onCreateImageCaptureFile = onCreateImageCaptureFile,
+            onImageCaptureUri = onImageCaptureUri,
+            onImportImage = onImportImage
         )
     }
 }
@@ -306,10 +325,39 @@ private fun TrashIcon(color: Color) {
 private fun Composer(
     state: AppState,
     message: String,
+    imagePath: String?,
     onMessageChange: (String) -> Unit,
     onSend: () -> Unit,
-    onStop: () -> Unit
+    onStop: () -> Unit,
+    onImageSelected: (String) -> Unit,
+    onClearImage: () -> Unit,
+    onCreateImageCaptureFile: () -> File,
+    onImageCaptureUri: (File) -> Uri,
+    onImportImage: (Uri) -> Result<String>
 ) {
+    var pendingCapturePath by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
+        val path = pendingCapturePath
+        if (captured && path != null) {
+            onImageSelected(path)
+        }
+        pendingCapturePath = null
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val file = onCreateImageCaptureFile()
+            pendingCapturePath = file.absolutePath
+            cameraLauncher.launch(onImageCaptureUri(file))
+        }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            onImportImage(it).onSuccess(onImageSelected)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -319,6 +367,38 @@ private fun Composer(
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         GenerationStatsRow(stats = state.generationStats, streaming = state.streamResponsesEnabled)
+        imagePath?.let { path ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = rememberAsyncImagePainter(File(path)),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(AppBackground, RoundedCornerShape(10.dp))
+                        .border(1.dp, AppBorder, RoundedCornerShape(10.dp))
+                )
+                Text("Image attached", color = AppText, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Button(
+                    onClick = onClearImage,
+                    enabled = !state.isGenerating,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFDECEC),
+                        contentColor = AppDanger,
+                        disabledContainerColor = Color(0xFFE3E5EB),
+                        disabledContentColor = AppMuted
+                    )
+                ) {
+                    Text("Remove", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -345,8 +425,38 @@ private fun Composer(
                 )
             )
             Button(
+                onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                enabled = state.canChat && !state.isGenerating,
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AppBackground,
+                    contentColor = AppText,
+                    disabledContainerColor = Color(0xFFE3E5EB),
+                    disabledContentColor = AppMuted
+                ),
+                modifier = Modifier.heightIn(min = 50.dp)
+            ) {
+                Text("Cam", fontWeight = FontWeight.Bold)
+            }
+            Button(
+                onClick = { galleryLauncher.launch("image/*") },
+                enabled = state.canChat && !state.isGenerating,
+                shape = RoundedCornerShape(12.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AppBackground,
+                    contentColor = AppText,
+                    disabledContainerColor = Color(0xFFE3E5EB),
+                    disabledContentColor = AppMuted
+                ),
+                modifier = Modifier.heightIn(min = 50.dp)
+            ) {
+                Text("Img", fontWeight = FontWeight.Bold)
+            }
+            Button(
                 onClick = if (state.isGenerating) onStop else onSend,
-                enabled = state.isGenerating || (state.canChat && message.isNotBlank()),
+                enabled = state.isGenerating || (state.canChat && (message.isNotBlank() || imagePath != null)),
                 shape = RoundedCornerShape(topEnd = 23.dp, bottomEnd = 23.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (state.isGenerating) Color(0xFFFDECEC) else AppAccent,
@@ -403,7 +513,22 @@ private fun ChatBubble(chatMessage: ChatMessage) {
                 .padding(horizontal = 13.dp, vertical = 11.dp)
         ) {
             if (isUser) {
-                Text(chatMessage.content, color = Color.White)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    chatMessage.imagePath?.let { path ->
+                        Image(
+                            painter = rememberAsyncImagePainter(File(path)),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp)
+                                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                        )
+                    }
+                    if (chatMessage.content.isNotBlank()) {
+                        Text(chatMessage.content, color = Color.White)
+                    }
+                }
             } else {
                 ChatMessageContent(chatMessage = chatMessage)
             }

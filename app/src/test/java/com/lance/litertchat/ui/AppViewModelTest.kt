@@ -476,6 +476,31 @@ class AppViewModelTest {
     }
 
     @Test
+    fun sendMessageWithImagePassesImagePathToEngineAndStoresPreview() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val imageFile = File(temporaryFolder.root, "photo.jpg")
+        imageFile.writeText("image")
+        val metadata = installedModel(path = modelFile.absolutePath)
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(metadata)
+        val engine = FakeChatEngine(response = "That is a photo")
+        val viewModel = testViewModel(repository, engine = engine)
+
+        viewModel.sendMessage("Describe this", imageFile.absolutePath)
+        advanceUntilIdle()
+
+        assertEquals(listOf(imageFile.absolutePath), engine.streamingImagePaths)
+        assertEquals(
+            listOf(
+                ChatMessage("user", "Describe this", imagePath = imageFile.absolutePath),
+                ChatMessage("assistant", "That is a photo")
+            ),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
     fun duplicateQuickSendOnlyStartsOneGeneration() = runTest(mainDispatcherRule.testDispatcher) {
         val modelFile = File(temporaryFolder.root, "model.litertlm")
         modelFile.writeText("model")
@@ -1077,6 +1102,8 @@ private class FakeChatEngine(
     val loadRequests = mutableListOf<Pair<String, InferenceRuntimeConfig>>()
     val prompts = mutableListOf<String>()
     val streamingPrompts = mutableListOf<String>()
+    val imagePaths = mutableListOf<String>()
+    val streamingImagePaths = mutableListOf<String>()
     var releaseCount = 0
     var cancelCount = 0
 
@@ -1101,6 +1128,12 @@ private class FakeChatEngine(
         return generateFailure?.let { Result.failure(it) } ?: Result.success(response)
     }
 
+    override suspend fun generateWithImage(prompt: String, imagePath: String): Result<String> {
+        prompts += prompt
+        imagePaths += imagePath
+        return generateFailure?.let { Result.failure(it) } ?: Result.success(response)
+    }
+
     override suspend fun generateStreaming(
         prompt: String,
         onPartialResponse: (String) -> Unit
@@ -1115,6 +1148,18 @@ private class FakeChatEngine(
                 throw error
             }
         }
+        generateFailure?.let { return Result.failure(it) }
+        streamingResponses.forEach(onPartialResponse)
+        return Result.success(streamingResponses.lastOrNull() ?: response)
+    }
+
+    override suspend fun generateStreamingWithImage(
+        prompt: String,
+        imagePath: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String> {
+        streamingPrompts += prompt
+        streamingImagePaths += imagePath
         generateFailure?.let { return Result.failure(it) }
         streamingResponses.forEach(onPartialResponse)
         return Result.success(streamingResponses.lastOrNull() ?: response)

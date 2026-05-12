@@ -1,6 +1,8 @@
 package com.lance.litertchat.inference
 
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
@@ -18,8 +20,14 @@ interface ChatEngine {
         runtimeConfig: InferenceRuntimeConfig = InferenceRuntimeConfig.defaultCpu
     ): Result<Unit>
     suspend fun generate(prompt: String): Result<String>
+    suspend fun generateWithImage(prompt: String, imagePath: String): Result<String>
     suspend fun generateStreaming(
         prompt: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String>
+    suspend fun generateStreamingWithImage(
+        prompt: String,
+        imagePath: String,
         onPartialResponse: (String) -> Unit
     ): Result<String>
     fun cancelGeneration()
@@ -122,6 +130,9 @@ class LiteRtChatEngine : ChatEngine {
         }
     }
 
+    override suspend fun generateWithImage(prompt: String, imagePath: String): Result<String> =
+        generateContents(prompt = prompt, imagePath = imagePath)
+
     override suspend fun generateStreaming(
         prompt: String,
         onPartialResponse: (String) -> Unit
@@ -140,6 +151,45 @@ class LiteRtChatEngine : ChatEngine {
 
             var latest = ""
             activeConversation.sendMessageAsync(prompt).collect { message ->
+                latest = message.toString()
+                onPartialResponse(latest)
+            }
+            latest
+        }
+    }
+
+    override suspend fun generateStreamingWithImage(
+        prompt: String,
+        imagePath: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String> = generateContentsStreaming(
+        prompt = prompt,
+        imagePath = imagePath,
+        onPartialResponse = onPartialResponse
+    )
+
+    private suspend fun generateContents(prompt: String, imagePath: String): Result<String> =
+        withContext(Dispatchers.Default) {
+            runCatching {
+                val contents = promptImageContents(prompt, imagePath)
+                val activeConversation = activeConversation()
+
+                val message = activeConversation.sendMessage(contents)
+                message.toString()
+            }
+        }
+
+    private suspend fun generateContentsStreaming(
+        prompt: String,
+        imagePath: String,
+        onPartialResponse: (String) -> Unit
+    ): Result<String> = withContext(Dispatchers.Default) {
+        runCatching {
+            val contents = promptImageContents(prompt, imagePath)
+            val activeConversation = activeConversation()
+
+            var latest = ""
+            activeConversation.sendMessageAsync(contents).collect { message ->
                 latest = message.toString()
                 onPartialResponse(latest)
             }
@@ -167,6 +217,26 @@ class LiteRtChatEngine : ChatEngine {
             runCatching { activeConversation?.close() }
             runCatching { activeEngine?.close() }
         }
+    }
+
+    private fun activeConversation(): LiteRtConversationHandle =
+        synchronized(lock) {
+            val activeConversation = conversation
+                ?: error("LiteRT-LM model is not loaded.")
+            if (engine == null || loadedModelPath == null) {
+                error("LiteRT-LM model is not loaded.")
+            }
+            activeConversation
+        }
+
+    private fun promptImageContents(prompt: String, imagePath: String): Contents {
+        require(prompt.isNotBlank()) { "Prompt must not be blank." }
+        require(imagePath.isNotBlank()) { "Image path must not be blank." }
+        require(File(imagePath).exists()) { "Image file does not exist." }
+        return Contents.of(
+            Content.Text(prompt),
+            Content.ImageFile(imagePath)
+        )
     }
 
     private companion object {
@@ -199,7 +269,9 @@ internal interface LiteRtEngineHandle {
 
 internal interface LiteRtConversationHandle {
     fun sendMessage(prompt: String): Any?
+    fun sendMessage(contents: Contents): Any?
     fun sendMessageAsync(prompt: String): Flow<Any?>
+    fun sendMessageAsync(contents: Contents): Flow<Any?>
     fun cancelProcess()
     fun close()
 }
@@ -237,8 +309,14 @@ private class RealLiteRtConversationHandle(
     override fun sendMessage(prompt: String): Any? =
         conversation.sendMessage(prompt)
 
+    override fun sendMessage(contents: Contents): Any? =
+        conversation.sendMessage(contents)
+
     override fun sendMessageAsync(prompt: String): Flow<Any?> =
         conversation.sendMessageAsync(prompt)
+
+    override fun sendMessageAsync(contents: Contents): Flow<Any?> =
+        conversation.sendMessageAsync(contents)
 
     override fun cancelProcess() {
         conversation.cancelProcess()

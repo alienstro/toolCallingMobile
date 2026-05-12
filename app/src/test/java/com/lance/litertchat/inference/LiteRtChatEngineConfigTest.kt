@@ -1,6 +1,7 @@
 package com.lance.litertchat.inference
 
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.ExperimentalFlags
 import java.io.File
@@ -211,8 +212,13 @@ private class FakeLiteRtEngineHandle(
 private class EmptyLiteRtConversationHandle : LiteRtConversationHandle {
     override fun sendMessage(prompt: String): Any = "Done"
 
+    override fun sendMessage(contents: Contents): Any = "Done"
+
     override fun sendMessageAsync(prompt: String): Flow<Any?> =
         flowOf(sendMessage(prompt))
+
+    override fun sendMessageAsync(contents: Contents): Flow<Any?> =
+        flowOf(sendMessage(contents))
 
     override fun cancelProcess() = Unit
 
@@ -229,8 +235,13 @@ private class BlockingLiteRtConversationHandle : LiteRtConversationHandle {
         return "Done"
     }
 
+    override fun sendMessage(contents: Contents): Any = sendMessage("image")
+
     override fun sendMessageAsync(prompt: String): Flow<Any?> =
         flowOf(sendMessage(prompt))
+
+    override fun sendMessageAsync(contents: Contents): Flow<Any?> =
+        flowOf(sendMessage(contents))
 
     override fun cancelProcess() = Unit
 

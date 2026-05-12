@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.content.FileProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -115,7 +116,16 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                             onStop = appViewModel::stopGeneration,
                             onNewChat = appViewModel::startNewChat,
                             onSelectChat = appViewModel::selectChatSession,
-                            onDeleteChat = appViewModel::deleteChatSession
+                            onDeleteChat = appViewModel::deleteChatSession,
+                            onCreateImageCaptureFile = { appViewModel.createChatImageFile(context) },
+                            onImageCaptureUri = { file ->
+                                FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file
+                                )
+                            },
+                            onImportImage = { uri -> appViewModel.copyChatImageFromUri(context, uri) }
                         )
                     }
                     composable(AppRoute.Diagnostics.route) {
