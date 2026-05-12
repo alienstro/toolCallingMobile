@@ -29,6 +29,7 @@ interface ChatEngine {
 @OptIn(ExperimentalApi::class)
 class LiteRtChatEngine : ChatEngine {
     private val engineFactory: LiteRtEngineHandleFactory
+    private val speculativeFlagOwner = Any()
     private val lock = Any()
     private var engine: LiteRtEngineHandle? = null
     private var conversation: LiteRtConversationHandle? = null
@@ -71,7 +72,10 @@ class LiteRtChatEngine : ChatEngine {
                 }
 
                 val backendConfig = LiteRtBackendConfig.from(runtimeConfig)
-                ExperimentalFlags.enableSpeculativeDecoding = backendConfig.speculativeDecodingEnabled
+                setSpeculativeFlagOwner(
+                    owner = speculativeFlagOwner,
+                    enabled = backendConfig.speculativeDecodingEnabled
+                )
 
                 val newEngine = try {
                     engineFactory.create(
@@ -79,7 +83,7 @@ class LiteRtChatEngine : ChatEngine {
                         backend = backendConfig.backend
                     )
                 } catch (error: Throwable) {
-                    resetSpeculativeFlagAfterFailedLoad()
+                    setSpeculativeFlagOwner(owner = speculativeFlagOwner, enabled = false)
                     throw error
                 }
 
@@ -93,7 +97,7 @@ class LiteRtChatEngine : ChatEngine {
                     loadedRuntimeConfig = runtimeConfig
                 } catch (error: Throwable) {
                     runCatching { newEngine.close() }
-                    resetSpeculativeFlagAfterFailedLoad()
+                    setSpeculativeFlagOwner(owner = speculativeFlagOwner, enabled = false)
                     throw error
                 }
             }
@@ -158,22 +162,28 @@ class LiteRtChatEngine : ChatEngine {
             engine = null
             loadedModelPath = null
             loadedRuntimeConfig = null
-            ExperimentalFlags.enableSpeculativeDecoding = false
+            setSpeculativeFlagOwner(owner = speculativeFlagOwner, enabled = false)
 
             runCatching { activeConversation?.close() }
             runCatching { activeEngine?.close() }
         }
     }
 
-    private fun resetSpeculativeFlagAfterFailedLoad() {
-        ExperimentalFlags.enableSpeculativeDecoding =
-            loadedRuntimeConfig?.speculativeDecodingEnabled == true &&
-            engine != null &&
-            conversation != null
-    }
-
     private companion object {
         const val MODEL_EXTENSION = ".litertlm"
+        private val speculativeFlagOwners = mutableSetOf<Any>()
+        private val speculativeFlagLock = Any()
+
+        fun setSpeculativeFlagOwner(owner: Any, enabled: Boolean) {
+            synchronized(speculativeFlagLock) {
+                if (enabled) {
+                    speculativeFlagOwners += owner
+                } else {
+                    speculativeFlagOwners -= owner
+                }
+                ExperimentalFlags.enableSpeculativeDecoding = speculativeFlagOwners.isNotEmpty()
+            }
+        }
     }
 }
 

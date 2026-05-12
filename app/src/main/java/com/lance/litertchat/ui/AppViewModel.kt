@@ -16,6 +16,7 @@ import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.prompt.PromptFormatter
 import com.lance.litertchat.prompt.PromptFormatterRepository
+import com.lance.litertchat.settings.AppSettings
 import com.lance.litertchat.settings.AppSettingsRepository
 import com.lance.litertchat.ui.chat.ChatHistoryRepository
 import com.lance.litertchat.ui.chat.ChatHistoryState
@@ -102,7 +103,10 @@ class AppViewModel(
             activePromptFormatterId = initialPromptFormatterState.activeFormatterId,
             streamResponsesEnabled = initialSettings.streamResponsesEnabled,
             gpuBackendEnabled = initialSettings.gpuBackendEnabled,
-            gemmaMtpEnabled = initialSettings.gemmaMtpEnabled
+            gemmaMtpEnabled = initialSettings.gemmaMtpEnabled,
+            runtimeStatus = InferenceRuntimeStatus(
+                requested = runtimeConfigForSettings(initialSettings)
+            )
         )
     )
     val state: StateFlow<AppState> = mutableState
@@ -476,6 +480,16 @@ class AppViewModel(
         refreshSettingsState()
     }
 
+    override fun onCleared() {
+        generationJob?.cancel()
+        if (mutableState.value.isGenerating) {
+            engine.cancelGeneration()
+        }
+        generationJob = null
+        engine.release()
+        super.onCleared()
+    }
+
     private fun fileNameFromUrl(normalizedUrl: String): String {
         val rawName = URI(normalizedUrl).rawPath.substringAfterLast("/")
         return URLDecoder.decode(rawName, StandardCharsets.UTF_8.name())
@@ -519,17 +533,30 @@ class AppViewModel(
 
     private fun refreshSettingsState() {
         val settings = appSettingsRepository.load()
+        val requestedRuntime = runtimeConfigForSettings(settings)
         mutableState.update {
+            val previousRuntimeStatus = it.runtimeStatus
             it.copy(
                 streamResponsesEnabled = settings.streamResponsesEnabled,
                 gpuBackendEnabled = settings.gpuBackendEnabled,
-                gemmaMtpEnabled = settings.gemmaMtpEnabled
+                gemmaMtpEnabled = settings.gemmaMtpEnabled,
+                runtimeStatus = previousRuntimeStatus.copy(
+                    requested = requestedRuntime,
+                    fallbackReason = if (previousRuntimeStatus.requested == requestedRuntime) {
+                        previousRuntimeStatus.fallbackReason
+                    } else {
+                        null
+                    }
+                )
             )
         }
     }
 
     private fun requestedRuntimeConfig(): InferenceRuntimeConfig {
-        val settings = appSettingsRepository.load()
+        return runtimeConfigForSettings(appSettingsRepository.load())
+    }
+
+    private fun runtimeConfigForSettings(settings: AppSettings): InferenceRuntimeConfig {
         return if (settings.gpuBackendEnabled) {
             InferenceRuntimeConfig(
                 backend = InferenceBackend.GPU,

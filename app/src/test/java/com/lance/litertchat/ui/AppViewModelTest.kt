@@ -97,6 +97,28 @@ class AppViewModelTest {
     }
 
     @Test
+    fun viewModelStartsWithRequestedRuntimeFromPersistedSettings() {
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        settingsRepository.setGpuBackendEnabled(true)
+        settingsRepository.setGemmaMtpEnabled(true)
+
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            appSettingsRepository = settingsRepository
+        )
+
+        assertEquals(
+            InferenceRuntimeConfig(
+                backend = InferenceBackend.GPU,
+                speculativeDecodingEnabled = true
+            ),
+            viewModel.state.value.runtimeStatus.requested
+        )
+        assertEquals(InferenceRuntimeConfig.defaultCpu, viewModel.state.value.runtimeStatus.active)
+        assertNull(viewModel.state.value.runtimeStatus.fallbackReason)
+    }
+
+    @Test
     fun downloadModelDownloadsFileAndSavesMetadata() = runTest(mainDispatcherRule.testDispatcher) {
         val content = "model bytes".toByteArray()
         val downloader = FakeDownloader { _, destination, onProgress ->
@@ -573,10 +595,39 @@ class AppViewModelTest {
             "GPU + MTP failed: GPU unavailable. Fell back to CPU.",
             viewModel.state.value.runtimeStatus.fallbackReason
         )
+        viewModel.setGemmaMtpEnabled(false)
+
+        assertEquals(
+            InferenceRuntimeConfig(
+                backend = InferenceBackend.GPU,
+                speculativeDecodingEnabled = false
+            ),
+            viewModel.state.value.runtimeStatus.requested
+        )
+        assertNull(viewModel.state.value.runtimeStatus.fallbackReason)
         assertEquals(
             listOf(ChatMessage("user", "Hi"), ChatMessage("assistant", "CPU answer")),
             viewModel.state.value.messages
         )
+    }
+
+    @Test
+    fun settingsToggleUpdatesDiagnosticsRequestedRuntimeImmediately() {
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            appSettingsRepository = settingsRepository
+        )
+        val gpuMtpConfig = InferenceRuntimeConfig(
+            backend = InferenceBackend.GPU,
+            speculativeDecodingEnabled = true
+        )
+
+        viewModel.setGpuBackendEnabled(true)
+        viewModel.setGemmaMtpEnabled(true)
+
+        assertEquals(gpuMtpConfig, viewModel.state.value.runtimeStatus.requested)
+        assertEquals(InferenceRuntimeConfig.defaultCpu, viewModel.state.value.runtimeStatus.active)
     }
 
     @Test
@@ -851,6 +902,47 @@ class AppViewModelTest {
     }
 
     @Test
+    fun onClearedReleasesIdleEngine() {
+        val repository = ModelRepository(temporaryFolder.root)
+        val engine = FakeChatEngine()
+        val viewModel = testViewModel(repository = repository, engine = engine)
+
+        clearViewModel(viewModel)
+
+        assertEquals(1, engine.releaseCount)
+        assertEquals(0, engine.cancelCount)
+    }
+
+    @Test
+    fun onClearedCancelsActiveGenerationAndReleasesEngine() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val response = CompletableDeferred<String>()
+        val engine = FakeChatEngine(responseDeferred = response)
+        val viewModel = testViewModel(repository = repository, engine = engine)
+
+        viewModel.sendMessage("Hello")
+        runCurrent()
+        clearViewModel(viewModel)
+        runCurrent()
+
+        assertEquals(1, engine.cancelCount)
+        assertEquals(1, engine.releaseCount)
+
+        response.complete("Late response")
+        advanceUntilIdle()
+        assertEquals(
+            listOf(
+                ChatMessage("user", "Hello"),
+                ChatMessage("assistant", "Processing...", isLoading = true)
+            ),
+            viewModel.state.value.messages
+        )
+    }
+
+    @Test
     fun sendMessageStoresGenerationStatsForAssistantResponse() = runTest(mainDispatcherRule.testDispatcher) {
         val modelFile = File(temporaryFolder.root, "model.litertlm")
         modelFile.writeText("model")
@@ -946,6 +1038,12 @@ class AppViewModelTest {
             ioDispatcher = mainDispatcherRule.testDispatcher,
             nanoTimeProvider = nanoTimeProvider
         )
+
+    private fun clearViewModel(viewModel: AppViewModel) {
+        AppViewModel::class.java.getDeclaredMethod("onCleared")
+            .also { it.isAccessible = true }
+            .invoke(viewModel)
+    }
 }
 
 private class FakeDownloader(

@@ -84,6 +84,70 @@ class LiteRtChatEngineConfigTest {
     }
 
     @Test
+    fun nonSpeculativeEngineDoesNotClearSpeculativeFlagOwnedByAnotherEngine() = runTest {
+        val speculativeEngine = LiteRtChatEngine(FakeLiteRtEngineFactory(EmptyLiteRtConversationHandle()))
+        val cpuEngine = LiteRtChatEngine(FakeLiteRtEngineFactory(EmptyLiteRtConversationHandle()))
+        val gpuMtpConfig = InferenceRuntimeConfig(
+            backend = InferenceBackend.GPU,
+            speculativeDecodingEnabled = true
+        )
+        ExperimentalFlags.enableSpeculativeDecoding = false
+
+        try {
+            assertTrue(speculativeEngine.load(temporaryModelFile(), gpuMtpConfig).isSuccess)
+            assertTrue(ExperimentalFlags.enableSpeculativeDecoding == true)
+
+            assertTrue(cpuEngine.load(temporaryModelFile(), InferenceRuntimeConfig.defaultCpu).isSuccess)
+            assertTrue(
+                "CPU load must not clear another active engine's speculative flag",
+                ExperimentalFlags.enableSpeculativeDecoding == true
+            )
+
+            cpuEngine.release()
+            assertTrue(
+                "CPU release must not clear another active engine's speculative flag",
+                ExperimentalFlags.enableSpeculativeDecoding == true
+            )
+        } finally {
+            cpuEngine.release()
+            speculativeEngine.release()
+        }
+
+        assertFalse(ExperimentalFlags.enableSpeculativeDecoding == true)
+    }
+
+    @Test
+    fun failedSpeculativeLoadDoesNotClearSpeculativeFlagOwnedByAnotherEngine() = runTest {
+        val activeEngine = LiteRtChatEngine(FakeLiteRtEngineFactory(EmptyLiteRtConversationHandle()))
+        val failingEngine = LiteRtChatEngine(
+            ThrowingLiteRtEngineFactory(IllegalStateException("constructor failed"))
+        )
+        val gpuMtpConfig = InferenceRuntimeConfig(
+            backend = InferenceBackend.GPU,
+            speculativeDecodingEnabled = true
+        )
+        ExperimentalFlags.enableSpeculativeDecoding = false
+
+        try {
+            assertTrue(activeEngine.load(temporaryModelFile(), gpuMtpConfig).isSuccess)
+            assertTrue(ExperimentalFlags.enableSpeculativeDecoding == true)
+
+            val result = failingEngine.load(temporaryModelFile(), gpuMtpConfig)
+
+            assertTrue(result.isFailure)
+            assertTrue(
+                "Failed load must not clear another active engine's speculative flag",
+                ExperimentalFlags.enableSpeculativeDecoding == true
+            )
+        } finally {
+            failingEngine.release()
+            activeEngine.release()
+        }
+
+        assertFalse(ExperimentalFlags.enableSpeculativeDecoding == true)
+    }
+
+    @Test
     fun generateDoesNotHoldEngineLockWhileSendingBlockingMessage() = runTest {
         val conversation = BlockingLiteRtConversationHandle()
         val engine = LiteRtChatEngine(FakeLiteRtEngineFactory(conversation))
@@ -140,6 +204,17 @@ private class FakeLiteRtEngineHandle(
     override fun initialize() = Unit
 
     override fun createConversation(): LiteRtConversationHandle = conversation
+
+    override fun close() = Unit
+}
+
+private class EmptyLiteRtConversationHandle : LiteRtConversationHandle {
+    override fun sendMessage(prompt: String): Any = "Done"
+
+    override fun sendMessageAsync(prompt: String): Flow<Any?> =
+        flowOf(sendMessage(prompt))
+
+    override fun cancelProcess() = Unit
 
     override fun close() = Unit
 }
