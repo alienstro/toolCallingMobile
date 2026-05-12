@@ -214,13 +214,13 @@ data class InferenceRuntimeConfig(
         }
 
     companion object {
-        val Cpu = InferenceRuntimeConfig()
+        val defaultCpu = InferenceRuntimeConfig()
     }
 }
 
 data class InferenceRuntimeStatus(
-    val requested: InferenceRuntimeConfig = InferenceRuntimeConfig.Cpu,
-    val active: InferenceRuntimeConfig = InferenceRuntimeConfig.Cpu,
+    val requested: InferenceRuntimeConfig = InferenceRuntimeConfig.defaultCpu,
+    val active: InferenceRuntimeConfig = InferenceRuntimeConfig.defaultCpu,
     val fallbackReason: String? = null
 )
 ```
@@ -312,7 +312,7 @@ Change the interface:
 interface ChatEngine {
     suspend fun load(
         modelFile: File,
-        runtimeConfig: InferenceRuntimeConfig = InferenceRuntimeConfig.Cpu
+        runtimeConfig: InferenceRuntimeConfig = InferenceRuntimeConfig.defaultCpu
     ): Result<Unit>
     suspend fun generate(prompt: String): Result<String>
     suspend fun generateStreaming(
@@ -467,7 +467,7 @@ Update existing assertions from `engine.loadedPaths` to:
 
 ```kotlin
 assertEquals(
-    listOf(modelFile.absolutePath to InferenceRuntimeConfig.Cpu),
+    listOf(modelFile.absolutePath to InferenceRuntimeConfig.defaultCpu),
     engine.loadRequests
 )
 ```
@@ -576,7 +576,7 @@ fun gpuLoadFailureFallsBackToCpu() = runTest(mainDispatcherRule.testDispatcher) 
                 backend = InferenceBackend.GPU,
                 speculativeDecodingEnabled = true
             ),
-            modelFile.absolutePath to InferenceRuntimeConfig.Cpu
+            modelFile.absolutePath to InferenceRuntimeConfig.defaultCpu
         ),
         engine.loadRequests
     )
@@ -636,7 +636,7 @@ private fun requestedRuntimeConfig(): InferenceRuntimeConfig {
             speculativeDecodingEnabled = settings.gemmaMtpEnabled
         )
     } else {
-        InferenceRuntimeConfig.Cpu
+        InferenceRuntimeConfig.defaultCpu
     }
 }
 
@@ -657,7 +657,7 @@ private suspend fun loadModelWithFallback(model: ModelMetadata): Result<Inferenc
 
     val firstError = firstLoad.exceptionOrNull()
     engine.release()
-    val fallback = InferenceRuntimeConfig.Cpu
+    val fallback = InferenceRuntimeConfig.defaultCpu
     val fallbackLoad = engine.load(modelFile, fallback)
     if (fallbackLoad.isSuccess) {
         val reason = "${requested.label} failed: ${firstError?.message ?: "Model load failed"}. Fell back to CPU."
