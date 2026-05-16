@@ -5,6 +5,8 @@ import com.lance.litertchat.inference.ChatEngine
 import com.lance.litertchat.inference.InferenceBackend
 import com.lance.litertchat.inference.InferenceRuntimeConfig
 import com.lance.litertchat.inference.InferenceRuntimeStatus
+import com.lance.litertchat.memory.MemoryItem
+import com.lance.litertchat.memory.MemoryRepository
 import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.prompt.PromptFormatterRepository
@@ -875,6 +877,152 @@ class AppViewModelTest {
     }
 
     @Test
+    fun viewModelStartsWithPersistedMemories() {
+        val memoryRepository = MemoryRepository(temporaryFolder.root)
+        memoryRepository.upsertMemory("user.name", "Lance", now = 1000L)
+
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            memoryRepository = memoryRepository
+        )
+
+        assertEquals(listOf(MemoryItem("user.name", "Lance", 1000L)), viewModel.state.value.memories)
+    }
+
+    @Test
+    fun memoryActionsUpdateStateAndRepository() {
+        val memoryRepository = MemoryRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = ModelRepository(temporaryFolder.root),
+            memoryRepository = memoryRepository
+        )
+
+        viewModel.upsertMemory(" User Name ", " Lance ")
+        viewModel.deleteMemory("missing")
+
+        assertEquals("user.name", viewModel.state.value.memories.single().key)
+        assertEquals("Lance", memoryRepository.loadMemories().single().value)
+
+        viewModel.deleteMemory("User Name")
+
+        assertTrue(viewModel.state.value.memories.isEmpty())
+        assertTrue(memoryRepository.loadMemories().isEmpty())
+    }
+
+    @Test
+    fun sendMessageInjectsRelevantMemoriesIntoModelPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val memoryRepository = MemoryRepository(temporaryFolder.root)
+        memoryRepository.upsertMemory("user.name", "Lance", now = 1000L)
+        memoryRepository.upsertMemory("project.current", "local LiteRT Android chat app", now = 2000L)
+        val engine = FakeChatEngine(response = "Done")
+        val viewModel = testViewModel(
+            repository = repository,
+            memoryRepository = memoryRepository,
+            engine = engine
+        )
+
+        viewModel.sendMessage("How should this Android project store memory?")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(
+                "${PromptFormatterRepository.DEFAULT_FORMATTER_BODY}\n\n" +
+                    "Memory:\n" +
+                    "- user.name: Lance\n" +
+                    "- project.current: local LiteRT Android chat app\n\n" +
+                    "User message:\n" +
+                    "How should this Android project store memory?"
+            ),
+            engine.streamingPrompts
+        )
+    }
+
+    @Test
+    fun sendMessageStoresExplicitFavoriteMemoryFromUserPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val memoryRepository = MemoryRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = repository,
+            memoryRepository = memoryRepository,
+            engine = FakeChatEngine(response = "Saved"),
+            epochTimeProvider = { 1000L }
+        )
+
+        viewModel.sendMessage("my favorite color is blue")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MemoryItem("user.favorite.color", "blue", 1000L)),
+            memoryRepository.loadMemories()
+        )
+        assertEquals(
+            listOf(MemoryItem("user.favorite.color", "blue", 1000L)),
+            viewModel.state.value.memories
+        )
+    }
+
+    @Test
+    fun sendMessageStoresExplicitNameMemoryFromUserPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val memoryRepository = MemoryRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = repository,
+            memoryRepository = memoryRepository,
+            engine = FakeChatEngine(response = "Saved"),
+            epochTimeProvider = { 1000L }
+        )
+
+        viewModel.sendMessage("remember my name robinx")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MemoryItem("user.name", "robinx", 1000L)),
+            memoryRepository.loadMemories()
+        )
+        assertEquals(
+            listOf(MemoryItem("user.name", "robinx", 1000L)),
+            viewModel.state.value.memories
+        )
+    }
+
+    @Test
+    fun sendMessageStoresExplicitFoodMemoryFromUserPrompt() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.litertlm")
+        modelFile.writeText("model")
+        val repository = ModelRepository(temporaryFolder.root)
+        repository.saveMetadata(installedModel(path = modelFile.absolutePath))
+        val memoryRepository = MemoryRepository(temporaryFolder.root)
+        val viewModel = testViewModel(
+            repository = repository,
+            memoryRepository = memoryRepository,
+            engine = FakeChatEngine(response = "Saved"),
+            epochTimeProvider = { 1000L }
+        )
+
+        viewModel.sendMessage("I like to eat donuts and hotdogs")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(MemoryItem("user.likes.to.eat", "donuts and hotdogs", 1000L)),
+            memoryRepository.loadMemories()
+        )
+        assertEquals(
+            listOf(MemoryItem("user.likes.to.eat", "donuts and hotdogs", 1000L)),
+            viewModel.state.value.memories
+        )
+    }
+
+    @Test
     fun sendMessageShowsLoadingAssistantWhileGenerating() = runTest(mainDispatcherRule.testDispatcher) {
         val modelFile = File(temporaryFolder.root, "model.litertlm")
         modelFile.writeText("model")
@@ -1132,18 +1280,22 @@ class AppViewModelTest {
         formatterRepository: PromptFormatterRepository = PromptFormatterRepository(temporaryFolder.root),
         appSettingsRepository: AppSettingsRepository = AppSettingsRepository(temporaryFolder.root),
         chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(temporaryFolder.root),
+        memoryRepository: MemoryRepository = MemoryRepository(temporaryFolder.root),
         engine: ChatEngine = FakeChatEngine(),
-        nanoTimeProvider: () -> Long = { 0L }
+        nanoTimeProvider: () -> Long = { 0L },
+        epochTimeProvider: () -> Long = { 0L }
     ): AppViewModel =
         AppViewModel(
             repository = repository,
             promptFormatterRepository = formatterRepository,
             appSettingsRepository = appSettingsRepository,
             chatHistoryRepository = chatHistoryRepository,
+            memoryRepository = memoryRepository,
             downloader = downloader,
             engine = engine,
             ioDispatcher = mainDispatcherRule.testDispatcher,
-            nanoTimeProvider = nanoTimeProvider
+            nanoTimeProvider = nanoTimeProvider,
+            epochTimeProvider = epochTimeProvider
         )
 
     private fun clearViewModel(viewModel: AppViewModel) {

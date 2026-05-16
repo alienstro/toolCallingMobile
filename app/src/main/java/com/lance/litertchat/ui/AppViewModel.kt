@@ -11,6 +11,8 @@ import com.lance.litertchat.inference.InferenceBackend
 import com.lance.litertchat.inference.InferenceRuntimeConfig
 import com.lance.litertchat.inference.InferenceRuntimeStatus
 import com.lance.litertchat.inference.LiteRtChatEngine
+import com.lance.litertchat.memory.MemoryItem
+import com.lance.litertchat.memory.MemoryRepository
 import com.lance.litertchat.model.ModelConstants
 import com.lance.litertchat.model.ModelMetadata
 import com.lance.litertchat.model.ModelRepository
@@ -63,6 +65,7 @@ data class AppState(
     val generationStats: GenerationStats? = null,
     val promptFormatters: List<PromptFormatter> = emptyList(),
     val activePromptFormatterId: String = PromptFormatterRepository.DEFAULT_FORMATTER_ID,
+    val memories: List<MemoryItem> = emptyList(),
     val streamResponsesEnabled: Boolean = true,
     val gpuBackendEnabled: Boolean = false,
     val npuBackendEnabled: Boolean = false,
@@ -87,14 +90,17 @@ class AppViewModel(
     private val promptFormatterRepository: PromptFormatterRepository = PromptFormatterRepository(repository.rootDir),
     private val appSettingsRepository: AppSettingsRepository = AppSettingsRepository(repository.rootDir),
     private val chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(repository.rootDir),
+    private val memoryRepository: MemoryRepository = MemoryRepository(repository.rootDir),
     private val downloader: ModelDownloadClient = ModelDownloader(),
     private val engine: ChatEngine = LiteRtChatEngine(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val nanoTimeProvider: () -> Long = System::nanoTime
+    private val nanoTimeProvider: () -> Long = System::nanoTime,
+    private val epochTimeProvider: () -> Long = System::currentTimeMillis
 ) : ViewModel() {
     private val initialChatHistoryState = chatHistoryRepository.loadState()
     private val initialPromptFormatterState = promptFormatterRepository.loadState()
     private val initialSettings = appSettingsRepository.load()
+    private val initialMemories = memoryRepository.loadMemories()
     private val mutableState = MutableStateFlow(
         AppState(
             activeModel = repository.loadMetadata(),
@@ -103,6 +109,7 @@ class AppViewModel(
             activeChatSessionId = initialChatHistoryState.activeSessionId,
             promptFormatters = initialPromptFormatterState.formatters,
             activePromptFormatterId = initialPromptFormatterState.activeFormatterId,
+            memories = initialMemories,
             streamResponsesEnabled = initialSettings.streamResponsesEnabled,
             gpuBackendEnabled = initialSettings.gpuBackendEnabled,
             npuBackendEnabled = initialSettings.npuBackendEnabled,
@@ -335,6 +342,7 @@ class AppViewModel(
         val cleanedImagePath = imagePath?.trim()?.takeIf { it.isNotBlank() }
         if (cleanedPrompt.isBlank() && cleanedImagePath == null) return
 
+        captureExplicitMemories(cleanedPrompt)
         val model = beginGeneration(cleanedPrompt, cleanedImagePath) ?: return
 
         generationJob = viewModelScope.launch {
@@ -433,6 +441,14 @@ class AppViewModel(
         }
     }
 
+    private fun captureExplicitMemories(cleanedPrompt: String) {
+        if (cleanedPrompt.isBlank()) return
+        val captured = memoryRepository.captureExplicitMemories(cleanedPrompt, now = epochTimeProvider())
+        if (captured.isNotEmpty()) {
+            refreshMemoryState()
+        }
+    }
+
     private fun beginGeneration(cleanedPrompt: String, imagePath: String?): ModelMetadata? {
         var modelToUse: ModelMetadata? = null
         updateChatState { state ->
@@ -502,6 +518,16 @@ class AppViewModel(
         refreshPromptFormatterState()
     }
 
+    fun upsertMemory(key: String, value: String) {
+        memoryRepository.upsertMemory(key, value)
+        refreshMemoryState()
+    }
+
+    fun deleteMemory(key: String) {
+        memoryRepository.deleteMemory(key)
+        refreshMemoryState()
+    }
+
     fun setStreamResponsesEnabled(enabled: Boolean) {
         appSettingsRepository.setStreamResponsesEnabled(enabled)
         refreshSettingsState()
@@ -553,11 +579,15 @@ class AppViewModel(
         } else {
             userPrompt
         }
-        return if (formatterBody.isBlank()) {
-            prompt
-        } else {
-            "$formatterBody\n\nUser message:\n$prompt"
-        }
+        val memoryBlock = memoryRepository.selectForPrompt(prompt)
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(separator = "\n", prefix = "Memory:\n") { memory ->
+                "- ${memory.key}: ${memory.value}"
+            }
+
+        return listOf(formatterBody, memoryBlock, "User message:\n$prompt")
+            .filterNot { it.isNullOrBlank() }
+            .joinToString("\n\n")
     }
 
     private fun mergeStreamChunk(currentText: String, chunk: String): String =
@@ -575,6 +605,12 @@ class AppViewModel(
                 activePromptFormatterId = formatterState.activeFormatterId,
                 streamResponsesEnabled = mutableState.value.streamResponsesEnabled
             )
+        }
+    }
+
+    private fun refreshMemoryState() {
+        mutableState.update {
+            it.copy(memories = memoryRepository.loadMemories())
         }
     }
 

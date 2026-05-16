@@ -13,13 +13,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lance.litertchat.diagnostics.DeviceDiagnostics
+import com.lance.litertchat.memory.MemoryItem
+import com.lance.litertchat.memory.MemoryRepository
+import java.io.File
 
 @Composable
 fun DiagnosticsScreen(
     state: AppState,
     contentPadding: PaddingValues = PaddingValues()
 ) {
-    val info = DeviceDiagnostics.collect(LocalContext.current.filesDir)
+    val filesDir = LocalContext.current.filesDir
+    val info = DeviceDiagnostics.collect(filesDir)
+    val storedMemories = loadDiagnosticMemories(filesDir)
 
     LazyColumn(
         modifier = Modifier
@@ -75,8 +80,26 @@ fun DiagnosticsScreen(
                 }
             }
         }
+        item {
+            SectionTitle("Memory")
+            AppCard {
+                diagnosticMemoryRows(storedMemories).forEach { (label, value) ->
+                    InfoRow(label, value)
+                }
+            }
+        }
     }
 }
+
+fun diagnosticMemoryRows(memories: List<MemoryItem>): List<Pair<String, String>> {
+    if (memories.isEmpty()) return listOf("Stored memories" to "None")
+
+    return listOf("Stored memories" to memories.size.toString()) +
+        memories.map { memory -> memory.key to memory.value }
+}
+
+fun loadDiagnosticMemories(rootDir: File): List<MemoryItem> =
+    MemoryRepository(rootDir).loadMemories()
 
 @Composable
 private fun DiagnosticRow(label: String, value: String) {

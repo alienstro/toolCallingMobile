@@ -35,6 +35,8 @@ fun SettingsScreen(
     onDeleteFormatter: (String) -> Unit,
     onSelectFormatter: (String) -> Unit,
     onResetDefaultFormatter: () -> Unit,
+    onUpsertMemory: (String, String) -> Unit,
+    onDeleteMemory: (String) -> Unit,
     onStreamResponsesChanged: (Boolean) -> Unit,
     onGpuBackendChanged: (Boolean) -> Unit,
     onNpuBackendChanged: (Boolean) -> Unit,
@@ -43,6 +45,8 @@ fun SettingsScreen(
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
     var body by rememberSaveable { mutableStateOf("") }
+    var memoryKey by rememberSaveable { mutableStateOf("") }
+    var memoryValue by rememberSaveable { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier
@@ -79,6 +83,90 @@ fun SettingsScreen(
                     enabled = state.gpuBackendEnabled,
                     onCheckedChange = onGemmaMtpChanged
                 )
+            }
+        }
+        item {
+            SectionTitle("Memory")
+            AppCard {
+                OutlinedTextField(
+                    value = memoryKey,
+                    onValueChange = { memoryKey = it },
+                    label = { Text("Memory key") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = AppBackground,
+                        unfocusedContainerColor = AppBackground
+                    )
+                )
+                OutlinedTextField(
+                    value = memoryValue,
+                    onValueChange = { memoryValue = it },
+                    label = { Text("Memory value") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = AppBackground,
+                        unfocusedContainerColor = AppBackground
+                    )
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CompactActionButton(
+                        text = "Save",
+                        enabled = memoryKey.isNotBlank() && memoryValue.isNotBlank(),
+                        primary = true,
+                        onClick = {
+                            onUpsertMemory(memoryKey, memoryValue)
+                            memoryKey = ""
+                            memoryValue = ""
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    CompactActionButton(
+                        text = "Clear",
+                        onClick = {
+                            memoryKey = ""
+                            memoryValue = ""
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+        item {
+            SectionTitle("Saved memories")
+        }
+        items(state.memories) { memory ->
+            AppCard {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(memory.key, color = AppText, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        text = memory.value,
+                        color = AppMuted,
+                        modifier = Modifier
+                            .padding(top = 7.dp)
+                            .border(1.dp, AppBorder, RoundedCornerShape(12.dp))
+                            .background(AppBackground, RoundedCornerShape(12.dp))
+                            .padding(10.dp)
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CompactActionButton(
+                        "Edit",
+                        onClick = {
+                            memoryKey = memory.key
+                            memoryValue = memory.value
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    CompactActionButton(
+                        "Delete",
+                        onClick = { onDeleteMemory(memory.key) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
         item {
