@@ -16,6 +16,10 @@ class LlamaCppChatEngine private constructor(
     private val lock = Any()
     private var loadedModelPath: String? = null
 
+    val isLoaded: Boolean
+        get() = synchronized(lock) { loadedModelPath != null } &&
+                inferenceEngine.state.value.isModelLoaded
+
     constructor(context: Context) : this(AiChat.getInferenceEngine(context.applicationContext))
 
     internal constructor(inferenceEngine: InferenceEngine, @Suppress("UNUSED_PARAMETER") marker: Unit) : this(inferenceEngine)

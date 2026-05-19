@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -78,6 +79,29 @@ class LlamaCppChatEngineTest {
             "Image prompts are not supported by the llama.cpp GGUF runtime.",
             result.exceptionOrNull()?.message
         )
+    }
+
+    @Test
+    fun isLoadedReturnsFalseBeforeLoad() = runTest {
+        val engine = LlamaCppChatEngine(FakeInferenceEngine(), Unit)
+        assertFalse(engine.isLoaded)
+    }
+
+    @Test
+    fun isLoadedReturnsTrueAfterSuccessfulLoad() = runTest {
+        val modelFile = temporaryModelFile()
+        val engine = LlamaCppChatEngine(FakeInferenceEngine(), Unit)
+        engine.load(modelFile)
+        assertTrue(engine.isLoaded)
+    }
+
+    @Test
+    fun isLoadedReturnsFalseAfterRelease() = runTest {
+        val modelFile = temporaryModelFile()
+        val engine = LlamaCppChatEngine(FakeInferenceEngine(), Unit)
+        engine.load(modelFile)
+        engine.release()
+        assertFalse(engine.isLoaded)
     }
 
     private fun temporaryModelFile(): File =
