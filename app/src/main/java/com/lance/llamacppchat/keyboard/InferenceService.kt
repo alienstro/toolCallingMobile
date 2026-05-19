@@ -31,6 +31,7 @@ class InferenceService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
+        engine.release()
     }
 
     private val binder = object : IInferenceService.Stub() {
