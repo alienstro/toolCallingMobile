@@ -20,6 +20,7 @@ android {
 
     buildFeatures {
         compose = true
+        aidl = true
     }
 
     compileOptions {
