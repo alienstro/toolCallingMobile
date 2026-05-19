@@ -75,19 +75,30 @@ The service calls `stopSelf()` once all clients unbind — no persistent backgro
 
 `LlamaCppKeyboardService` extends `InputMethodService`.
 
-### Keyboard design
-This IME shows **only the AI panel** — there are no typing keys. It is a purpose-built "AI assistant" keyboard, not a replacement for Gboard. The intended workflow:
+### Keyboard layout
 
-1. User is typing in any app (using Gboard or their default keyboard)
-2. They tap the keyboard selector icon (globe/keyboard icon in the Android nav bar) and switch to "LlamaCpp Chat"
-3. The AI panel opens immediately
-4. They ask their question, get a response, tap Insert or Copy
-5. They switch back to Gboard via the same keyboard selector to continue typing
+The IME keyboard area (~320dp total height) is split into two zones stacked vertically:
 
-This avoids implementing a full QWERTY layout and keeps the scope focused.
+```
+┌──────────────────────────────┐
+│  Ask AI...          [Ask]   │  ← panel zone (~110dp)
+│  Response / loader here...  │
+├──────────────────────────────┤
+│  Q W E R T Y U I O P       │
+│   A S D F G H J K L        │  ← keys zone (~210dp)
+│ ↑ Z X C V B N M  ⌫         │
+│ 123  [   space   ]   ↵      │
+└──────────────────────────────┘
+```
+
+The keys zone is a basic Compose grid — tap-only, no swipe, no autocorrect. Keys send characters to the panel's text field (not to the host app's field). The `↵` key triggers "Ask". The `⌫` key deletes one character. `123` row toggles to a number/symbol layer.
+
+When the AI responds (Generating / Done states), the keys zone is hidden and the panel zone expands to fill the full height, giving more room for the response.
+
+The user switches to this keyboard via the Android keyboard selector (globe icon). Normal typing in host apps still uses their default keyboard (Gboard etc.); this keyboard is invoked intentionally for AI queries.
 
 ### Panel lifecycle
-`onCreateInputView()` returns a `ComposeView` that fills the keyboard height (~280dp). The panel is the only view — no toggle needed.
+`onCreateInputView()` returns a `ComposeView` that fills the full keyboard height. The panel and keys zones are managed purely in Compose state — no separate Android Views.
 
 ### Selected text detection
 Immediately on panel open:
@@ -153,7 +164,7 @@ Uses existing `WarningBanner` composable from `UiKit.kt`.
 | `app/src/main/aidl/com/lance/llamacppchat/IInferenceCallback.aidl` | Streaming callback interface |
 | `app/src/main/java/com/lance/llamacppchat/keyboard/InferenceService.kt` | Bound service |
 | `app/src/main/java/com/lance/llamacppchat/keyboard/LlamaCppKeyboardService.kt` | InputMethodService |
-| `app/src/main/java/com/lance/llamacppchat/keyboard/KeyboardPanel.kt` | Compose panel UI |
+| `app/src/main/java/com/lance/llamacppchat/keyboard/KeyboardPanel.kt` | Compose panel + keys UI |
 | `app/src/main/res/xml/method.xml` | IME metadata |
 
 ## Files to modify
@@ -167,7 +178,8 @@ Uses existing `WarningBanner` composable from `UiKit.kt`.
 
 ## Out of scope
 
-- Keyboard layout customisation (keys, swipe typing) — this is a panel-only feature; the base keyboard remains the system default
+- Swipe typing, autocorrect, autocomplete suggestions
+- Full symbol/punctuation layers beyond basic 123 toggle
 - Persistent chat history in the panel — one-shot only
 - Image input from the keyboard panel
 - Multi-language prompt support
