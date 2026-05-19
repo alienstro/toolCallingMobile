@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteRT Chat - Diagnostics</title>
+  <link rel="stylesheet" href="../css/litert.css">
+</head>
+<body>
+  <script src="../js/litert.js"></script>
+  <script>
+    const content = `
+      <section class="panel diag-section">
+        <div class="panel-title">
+          <h2>Health</h2>
+          <span class="chip tone-warn">Degraded</span>
+        </div>
+        <div class="health-card">
+          <span class="row-label">Repository status</span>
+          <span class="row-value">Clean build target. App-private storage available.</span>
+        </div>
+        <div class="health-card" style="margin-top: 8px">
+          <span class="row-label">Current error state</span>
+          <span class="row-value">GPU delegate init failed: vendor driver returned UNSUPPORTED_OPERATION.</span>
+        </div>
+      </section>
+
+      <section class="panel diag-section">
+        <h2>Device</h2>
+        <div class="table">
+          <div class="table-row"><span>Manufacturer</span><span>Google</span></div>
+          <div class="table-row"><span>Model</span><span>Pixel 8 Pro</span></div>
+          <div class="table-row"><span>Android</span><span>15 / API 35</span></div>
+          <div class="table-row"><span>App storage</span><span>18.6 GB available</span></div>
+        </div>
+      </section>
+
+      <section class="panel diag-section">
+        <h2>Runtime</h2>
+        <div class="table">
+          <div class="table-row"><span>Requested</span><span>GPU</span></div>
+          <div class="table-row"><span>Active</span><span>CPU</span></div>
+          <div class="table-row"><span>Fallback</span><span>GPU delegate init failed, CPU selected for this session.</span></div>
+          <div class="table-row"><span>Streaming</span><span>Enabled</span></div>
+          <div class="table-row"><span>Messages</span><span>18 across 4 sessions</span></div>
+          <div class="table-row"><span>Latest error</span><span>Previous import rejected: expected .litertlm extension.</span></div>
+        </div>
+      </section>
+
+      <section class="panel diag-section">
+        <h2>Model</h2>
+        <div class="table">
+          <div class="table-row"><span>File</span><span>gemma-3n-e2b-it-int4.litertlm</span></div>
+          <div class="table-row"><span>Path</span><span>/data/user/0/com.lance.litertchat/files/models/gemma-3n-e2b-it-int4.litertlm</span></div>
+          <div class="table-row"><span>Size</span><span>2.74 GB</span></div>
+          <div class="table-row"><span>Source</span><span>https://huggingface.co/.../resolve/main/gemma-3n-e2b-it-int4.litertlm</span></div>
+        </div>
+      </section>
+
+      <section class="panel diag-section">
+        <div class="panel-title">
+          <h2>Generation</h2>
+          <span class="chip tone-good">Latest</span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat"><strong>146</strong><span>tokens</span></div>
+          <div class="stat"><strong>4.8s</strong><span>elapsed</span></div>
+          <div class="stat"><strong>30.4</strong><span>tok/s</span></div>
+        </div>
+      </section>
+
+      <section class="panel diag-section">
+        <div class="panel-title">
+          <h2>Memories</h2>
+          <span class="chip">3 entries</span>
+        </div>
+        <div class="table">
+          <div class="table-row"><span>preferred_format</span><span>Concise Markdown with code blocks.</span></div>
+          <div class="table-row"><span>device_context</span><span>Pixel 8 Pro, GPU requested.</span></div>
+          <div class="table-row"><span>test_goal</span><span>Compare image-only prompts against formatted text prompts.</span></div>
+        </div>
+      </section>`;
+    LiteRT.chrome("diag", "Diagnostics", "gemma-3n-e2b-it-int4.litertlm - Ready", "tone-warn", "CPU fallback", content);
+  </script>
+</body>
+</html>

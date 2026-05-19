@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteRT Chat - Settings</title>
+  <link rel="stylesheet" href="../css/litert.css">
+</head>
+<body>
+  <script src="../js/litert.js"></script>
+  <script>
+    const content = `
+      <section class="panel settings-section">
+        <h2>Runtime and generation</h2>
+        <div class="switch-row">
+          <span><span class="row-label">Stream responses</span><span class="row-value">Show assistant text as tokens arrive.</span></span>
+          <button class="switch on" type="button" aria-label="Toggle streaming"><span></span></button>
+        </div>
+        <div class="switch-row">
+          <span><span class="row-label">Use GPU backend</span><span class="row-value">Requested runtime: GPU. Active runtime: CPU fallback.</span></span>
+          <button class="switch on" type="button" aria-label="Toggle GPU"><span></span></button>
+        </div>
+        <div class="switch-row">
+          <span><span class="row-label">Experimental NPU backend</span><span class="row-value">Supported devices and model files only.</span></span>
+          <button class="switch" type="button" aria-label="Toggle NPU"><span></span></button>
+        </div>
+        <div class="switch-row disabled">
+          <span><span class="row-label">Gemma 4 MTP speculative decoding</span><span class="row-value">Requires active GPU backend.</span></span>
+          <button class="switch" type="button" aria-label="MTP disabled"><span></span></button>
+        </div>
+      </section>
+
+      <section class="panel settings-section">
+        <div class="panel-title">
+          <h2>Memory</h2>
+          <span class="chip">3 saved</span>
+        </div>
+        <div class="field">
+          <label for="memoryKey">Key</label>
+          <input id="memoryKey" class="text-input" value="preferred_format">
+        </div>
+        <div class="field" style="margin-top: 9px">
+          <label for="memoryValue">Value</label>
+          <textarea id="memoryValue" class="text-area">Prefer concise Markdown with code blocks when debugging model output.</textarea>
+        </div>
+        <div class="action-row">
+          <button class="button primary" data-toast="Memory saved">Save memory</button>
+          <button class="button" data-fill-input="#memoryValue" data-value="The user is testing on a Pixel 8 Pro with GPU requested.">Load device_context</button>
+        </div>
+        <div class="list" style="margin-top: 12px">
+          <div class="memory-item"><span class="row-label">device_context</span><span class="row-value">Pixel 8 Pro, GPU requested, CPU fallback observed.</span></div>
+          <div class="memory-item"><span class="row-label">test_goal</span><span class="row-value">Compare image-only prompts against formatted text prompts.</span></div>
+        </div>
+      </section>
+
+      <section class="panel settings-section">
+        <div class="panel-title">
+          <h2>Prompt formatter</h2>
+          <span class="chip tone-accent">Active</span>
+        </div>
+        <div class="field">
+          <label for="formatterName">Name</label>
+          <input id="formatterName" class="text-input" value="LiteRT debug chat">
+        </div>
+        <div class="field" style="margin-top: 9px">
+          <label for="formatterBody">Body</label>
+          <textarea id="formatterBody" class="text-area">System: You are running locally on Android. Use saved memories only when relevant.
+
+User: {{message}}</textarea>
+        </div>
+        <div class="action-row">
+          <button class="button primary" data-toast="Formatter updated">Save formatter</button>
+          <button class="button" data-toast="Default formatter reset">Reset default</button>
+        </div>
+        <div class="list" style="margin-top: 12px">
+          <div class="formatter-item"><span class="row-label">Default LiteRT-LM</span><span class="row-value">Built-in formatter, resettable but not deletable.</span></div>
+          <div class="formatter-item"><span class="row-label">LiteRT debug chat</span><span class="row-value">Selected. Keeps transcript clean while expanding the model prompt.</span></div>
+        </div>
+      </section>`;
+    LiteRT.chrome("settings", "Settings", "gemma-3n-e2b-it-int4.litertlm - Ready", "tone-warn", "CPU fallback", content);
+  </script>
+</body>
+</html>

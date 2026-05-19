@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteRT Chat - Chat</title>
+  <link rel="stylesheet" href="../css/litert.css">
+</head>
+<body>
+  <script src="../js/litert.js"></script>
+  <script>
+    const content = `
+      <div class="session-rail" aria-label="Chat sessions">
+        <button class="session" data-toast="New chat blocked while generation is running">+ New</button>
+        <button class="session active">Image debug</button>
+        <button class="session">Gemma tuning</button>
+        <button class="session">Memory test</button>
+      </div>
+      <div class="message-stack">
+        <article class="bubble user">
+          <div class="image-preview" aria-label="Attached image preview"></div>
+          <p>Describe the objects in this image and call out anything the model is uncertain about.</p>
+        </article>
+        <article class="bubble assistant">
+          <h3>Image readout</h3>
+          <p>The scene appears to show a small electronics workbench with a phone, cable, and a printed model card.</p>
+          <ul>
+            <li><strong>Likely objects:</strong> Android phone, USB-C cable, model notes.</li>
+            <li><strong>Uncertain:</strong> text on the paper is too small to read confidently.</li>
+          </ul>
+          <div class="stats-grid">
+            <div class="stat"><strong>146</strong><span>tokens</span></div>
+            <div class="stat"><strong>4.8s</strong><span>elapsed</span></div>
+            <div class="stat"><strong>30.4</strong><span>tok/s</span></div>
+          </div>
+        </article>
+        <article class="bubble user"><p>Now summarize that as a JSON object with keys for objects, uncertainty, and next_prompt.</p></article>
+        <article class="bubble assistant">
+          <p><strong>Generating response...</strong></p>
+          <p>{ "objects": ["phone", "USB-C cable", "paper notes"], "uncertainty":</p>
+          <div class="streaming" aria-label="Streaming"><span></span><span></span><span></span></div>
+        </article>
+      </div>`;
+    const composer = `
+      <div class="composer-wrap">
+        <form class="composer" onsubmit="event.preventDefault(); LiteRT.chrome('chat','Chat','gemma-3n-e2b-it-int4.litertlm - Ready','tone-accent','Running', document.querySelector('.content').innerHTML, document.querySelector('.composer-wrap').outerHTML);">
+          <div class="attach-menu">
+            <button class="icon-button" type="button" data-icon="plus" data-attach-toggle aria-label="Add attachment" aria-expanded="false"></button>
+            <div class="attach-popover" role="menu" aria-label="Attachment options">
+              <button type="button" role="menuitem" data-icon="camera" data-toast="Camera unavailable while generation is running">Camera</button>
+              <button type="button" role="menuitem" data-icon="image" data-toast="Image picker unavailable while generation is running">Gallery</button>
+            </div>
+          </div>
+          <textarea aria-label="Prompt" placeholder="Generation running..." disabled></textarea>
+          <button class="icon-button primary" type="button" data-icon="stop" data-toast="Generation stopped" aria-label="Stop generation"></button>
+        </form>
+      </div>`;
+    LiteRT.chrome("chat", "Chat", "gemma-3n-e2b-it-int4.litertlm - Ready", "tone-accent", "Running", content, composer);
+  </script>
+</body>
+</html>

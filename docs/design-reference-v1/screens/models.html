@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LiteRT Chat - Models</title>
+  <link rel="stylesheet" href="../css/litert.css">
+</head>
+<body>
+  <script src="../js/litert.js"></script>
+  <script>
+    const content = `
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Active model</h2>
+          <span class="chip tone-good"><span class="status-dot"></span>Ready</span>
+        </div>
+        <div class="table">
+          <div class="table-row"><span>File</span><span>gemma-3n-e2b-it-int4.litertlm</span></div>
+          <div class="table-row"><span>Source</span><span>Hugging Face resolve URL</span></div>
+          <div class="table-row"><span>Path</span><span>/data/user/0/com.lance.litertchat/files/models/gemma-3n-e2b-it-int4.litertlm</span></div>
+          <div class="table-row"><span>Size</span><span>2.74 GB</span></div>
+        </div>
+        <div class="action-row">
+          <button class="button danger" data-icon="trash" data-toast="Delete action would remove app-private model">Delete installed model</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Download model</h2>
+          <span class="chip tone-accent">62%</span>
+        </div>
+        <div class="field">
+          <label for="modelUrl">HTTPS model URL</label>
+          <input id="modelUrl" class="text-input" value="https://huggingface.co/google/gemma-3n/blob/main/gemma-3n-e2b-it-int4.litertlm">
+        </div>
+        <p class="caption">/blob/ links are normalized to /resolve/ before download.</p>
+        <div class="progress" aria-label="Download progress" style="--value: 62%"><span></span></div>
+        <div class="action-row">
+          <button class="button primary disabled" data-icon="download">Downloading...</button>
+          <button class="button disabled" data-icon="file">Import local file</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">
+          <h2>Warnings</h2>
+          <span class="chip tone-warn">Hardware-specific</span>
+        </div>
+        <div class="row">
+          <span class="row-main"><span class="row-label">Model filename hints at GPU-optimized build</span><span class="row-value">If GPU init fails, LiteRT Chat will fall back to CPU and log the reason in Diagnostics.</span></span>
+        </div>
+        <div class="row">
+          <span class="row-main"><span class="row-label">Last error</span><span class="row-value">Previous import rejected: expected .litertlm extension.</span></span>
+          <span class="mini-chip tone-danger">Error</span>
+        </div>
+      </section>`;
+    LiteRT.chrome("models", "Models", "gemma-3n-e2b-it-int4.litertlm - Ready", "tone-good", "Ready", content);
+  </script>
+</body>
+</html>

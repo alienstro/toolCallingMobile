@@ -1,7 +1,6 @@
 package com.lance.litertchat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,8 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -26,11 +23,9 @@ import androidx.core.content.FileProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -44,9 +39,6 @@ import com.lance.litertchat.model.ModelRepository
 import com.lance.litertchat.ui.AppAccent
 import com.lance.litertchat.ui.AppAccentSoft
 import com.lance.litertchat.ui.AppBackground
-import com.lance.litertchat.ui.AppBackgroundBrush
-import com.lance.litertchat.ui.AppBorder
-import com.lance.litertchat.ui.AppFaint
 import com.lance.litertchat.ui.AppMuted
 import com.lance.litertchat.ui.AppSurface
 import com.lance.litertchat.ui.AppText
@@ -56,9 +48,9 @@ import com.lance.litertchat.ui.ChatScreen
 import com.lance.litertchat.ui.DiagnosticsScreen
 import com.lance.litertchat.inference.LiteRtChatEngine
 import com.lance.litertchat.ui.ModelManagerScreen
+import com.lance.litertchat.ui.PillTone
 import com.lance.litertchat.ui.SettingsScreen
-import com.lance.litertchat.ui.StatusPill
-import com.lance.litertchat.ui.chromeRuntimeStatus
+import com.lance.litertchat.ui.StatusDot
 
 @Composable
 fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
@@ -69,9 +61,9 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
     val currentRoute = backStackEntry?.destination?.route ?: AppRoute.Chat.route
 
     AppTheme {
-        Surface(color = AppBackground) {
+        Surface {
             Scaffold(
-                containerColor = Color.Transparent,
+                containerColor = AppBackground,
                 topBar = {
                     AppTopBar(
                         route = AppRoute.entries.firstOrNull { it.route == currentRoute } ?: AppRoute.Models,
@@ -80,9 +72,8 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                 },
                 bottomBar = {
                     NavigationBar(
-                        containerColor = AppSurface.copy(alpha = 0.96f),
-                        tonalElevation = 0.dp,
-                        modifier = Modifier.background(AppSurface.copy(alpha = 0.96f))
+                        containerColor = AppSurface,
+                        tonalElevation = 0.dp
                     ) {
                         AppRoute.entries.forEach { appRoute ->
                             NavigationBarItem(
@@ -97,75 +88,66 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                                     }
                                 },
                                 label = { Text(appRoute.label) },
-                                icon = { RouteIcon(appRoute = appRoute, selected = currentRoute == appRoute.route) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = AppAccent,
-                                    selectedTextColor = AppAccent,
-                                    unselectedIconColor = AppFaint,
-                                    unselectedTextColor = AppFaint,
-                                    indicatorColor = AppAccentSoft
-                                )
+                                icon = { NavGlyph(appRoute = appRoute, selected = currentRoute == appRoute.route) }
                             )
                         }
                     }
                 }
             ) { contentPadding ->
-                Box(modifier = Modifier.background(AppBackgroundBrush)) {
-                    NavHost(
-                        navController = navController,
-                        startDestination = AppRoute.Chat.route
-                    ) {
-                        composable(AppRoute.Models.route) {
-                            ModelManagerScreen(
-                                state = state,
-                                contentPadding = contentPadding,
-                                onDownload = appViewModel::downloadModel,
-                                onDelete = appViewModel::deleteModel,
-                                onImport = { uri ->
-                                    appViewModel.importModelFromUri(context, uri)
-                                }
-                            )
-                        }
-                        composable(AppRoute.Chat.route) {
-                            ChatScreen(
-                                state = state,
-                                contentPadding = contentPadding,
-                                onSend = appViewModel::sendMessage,
-                                onStop = appViewModel::stopGeneration,
-                                onNewChat = appViewModel::startNewChat,
-                                onSelectChat = appViewModel::selectChatSession,
-                                onDeleteChat = appViewModel::deleteChatSession,
-                                onCreateImageCaptureFile = { appViewModel.createChatImageFile(context) },
-                                onImageCaptureUri = { file ->
-                                    FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        file
-                                    )
-                                },
-                                onImportImage = { uri -> appViewModel.copyChatImageFromUri(context, uri) }
-                            )
-                        }
-                        composable(AppRoute.Diagnostics.route) {
-                            DiagnosticsScreen(state = state, contentPadding = contentPadding)
-                        }
-                        composable(AppRoute.Settings.route) {
-                            SettingsScreen(
-                                state = state,
-                                contentPadding = contentPadding,
-                                onCreateFormatter = appViewModel::createPromptFormatter,
-                                onUpdateFormatter = appViewModel::updatePromptFormatter,
-                                onDeleteFormatter = appViewModel::deletePromptFormatter,
-                                onSelectFormatter = appViewModel::selectPromptFormatter,
-                                onResetDefaultFormatter = appViewModel::resetDefaultPromptFormatter,
-                                onUpsertMemory = appViewModel::upsertMemory,
-                                onDeleteMemory = appViewModel::deleteMemory,
-                                onStreamResponsesChanged = appViewModel::setStreamResponsesEnabled,
-                                onGpuBackendChanged = appViewModel::setGpuBackendEnabled,
-                                onNpuBackendChanged = appViewModel::setNpuBackendEnabled,
-                                onGemmaMtpChanged = appViewModel::setGemmaMtpEnabled
-                            )
-                        }
+                NavHost(
+                    navController = navController,
+                    startDestination = AppRoute.Chat.route
+                ) {
+                    composable(AppRoute.Models.route) {
+                        ModelManagerScreen(
+                            state = state,
+                            contentPadding = contentPadding,
+                            onDownload = appViewModel::downloadModel,
+                            onDelete = appViewModel::deleteModel,
+                            onImport = { uri ->
+                                appViewModel.importModelFromUri(context, uri)
+                            }
+                        )
+                    }
+                    composable(AppRoute.Chat.route) {
+                        ChatScreen(
+                            state = state,
+                            contentPadding = contentPadding,
+                            onSend = appViewModel::sendMessage,
+                            onStop = appViewModel::stopGeneration,
+                            onNewChat = appViewModel::startNewChat,
+                            onSelectChat = appViewModel::selectChatSession,
+                            onDeleteChat = appViewModel::deleteChatSession,
+                            onCreateImageCaptureFile = { appViewModel.createChatImageFile(context) },
+                            onImageCaptureUri = { file ->
+                                FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file
+                                )
+                            },
+                            onImportImage = { uri -> appViewModel.copyChatImageFromUri(context, uri) }
+                        )
+                    }
+                    composable(AppRoute.Diagnostics.route) {
+                        DiagnosticsScreen(state = state, contentPadding = contentPadding)
+                    }
+                    composable(AppRoute.Settings.route) {
+                        SettingsScreen(
+                            state = state,
+                            contentPadding = contentPadding,
+                            onCreateFormatter = appViewModel::createPromptFormatter,
+                            onUpdateFormatter = appViewModel::updatePromptFormatter,
+                            onDeleteFormatter = appViewModel::deletePromptFormatter,
+                            onSelectFormatter = appViewModel::selectPromptFormatter,
+                            onResetDefaultFormatter = appViewModel::resetDefaultPromptFormatter,
+                            onUpsertMemory = appViewModel::upsertMemory,
+                            onDeleteMemory = appViewModel::deleteMemory,
+                            onStreamResponsesChanged = appViewModel::setStreamResponsesEnabled,
+                            onGpuBackendChanged = appViewModel::setGpuBackendEnabled,
+                            onNpuBackendChanged = appViewModel::setNpuBackendEnabled,
+                            onGemmaMtpChanged = appViewModel::setGemmaMtpEnabled
+                        )
                     }
                 }
             }
@@ -175,49 +157,58 @@ fun LiteRtChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
 
 @Composable
 private fun AppTopBar(route: AppRoute, state: com.lance.litertchat.ui.AppState) {
-    val runtimeStatus = chromeRuntimeStatus(state)
-    val modelLine = state.activeModel?.let { "${it.fileName} - Ready" } ?: "No model installed"
-    val runtimeRequest = state.runtimeStatus.requested.label
+    val status = when {
+        state.isGenerating -> "Model is running"
+        state.isDownloading -> "Downloading model"
+        state.activeModel != null -> "${state.activeModel.fileName} - Ready"
+        else -> "No model installed"
+    }
+    val tone = when {
+        state.errorText != null -> PillTone.Warn
+        state.isGenerating || state.isDownloading -> PillTone.Accent
+        state.activeModel != null -> PillTone.Good
+        else -> PillTone.Neutral
+    }
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .background(AppSurface.copy(alpha = 0.94f))
-            .border(1.dp, AppBorder)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .background(AppSurface)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = route.label,
                 color = AppText,
-                style = MaterialTheme.typography.headlineSmall,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f)
+                fontWeight = FontWeight.ExtraBold
             )
-            StatusPill(runtimeStatus.label, runtimeStatus.tone, withDot = true)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                StatusDot(tone = tone)
+                Text(text = status, color = AppMuted, maxLines = 1)
+            }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = modelLine,
-                color = AppMuted,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                modifier = Modifier.weight(1f)
+    }
+}
+
+@Composable
+private fun NavGlyph(appRoute: AppRoute, selected: Boolean) {
+    Box(
+        modifier = Modifier
+            .background(
+                if (selected) AppAccentSoft else AppBackground,
+                RoundedCornerShape(999.dp)
             )
-            StatusPill("$runtimeRequest requested")
-        }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        RouteIcon(appRoute = appRoute, selected = selected)
     }
 }
 
@@ -268,8 +259,8 @@ private enum class AppRoute(
 ) {
     Chat("chat", "Chat"),
     Models("models", "Models"),
-    Settings("settings", "Settings"),
-    Diagnostics("diagnostics", "Diag")
+    Diagnostics("diagnostics", "Diag"),
+    Settings("settings", "Settings")
 }
 
 @Composable

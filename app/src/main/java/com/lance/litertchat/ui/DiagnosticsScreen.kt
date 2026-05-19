@@ -1,11 +1,16 @@
 package com.lance.litertchat.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -25,67 +30,84 @@ fun DiagnosticsScreen(
     val filesDir = LocalContext.current.filesDir
     val info = DeviceDiagnostics.collect(filesDir)
     val storedMemories = loadDiagnosticMemories(filesDir)
+    val totalSessionMessages = state.chatSessions.sumOf { it.messages.size }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            SectionTitle("Health")
             AppCard {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StatusPill("Repository OK", PillTone.Good)
-                    StatusPill(if (state.errorText == null) "No errors" else "Warning", if (state.errorText == null) PillTone.Good else PillTone.Warn)
+                PanelTitle("Health") {
+                    StatusPill(if (state.errorText == null) "Good" else "Degraded", if (state.errorText == null) PillTone.Good else PillTone.Warn)
                 }
-                Text(
-                    text = "Current runtime checks are based on app state and device storage.",
-                    color = AppMuted
+                HealthCard("Repository status", "Clean build target. App-private storage available.")
+                HealthCard("Current error state", state.errorText ?: "No active errors.")
+            }
+        }
+        item {
+            AppCard {
+                SectionTitle("Device")
+                DataTable(
+                    rows = listOf(
+                        "Manufacturer" to info.manufacturer,
+                        "Model" to info.model,
+                        "Android" to "${info.androidVersion} / API ${info.apiLevel}",
+                        "App storage" to "${formatByteSize(info.availableStorageBytes)} available"
+                    )
                 )
             }
         }
         item {
-            SectionTitle("Device")
             AppCard {
-                InfoRow("Device", "${info.manufacturer} ${info.model}")
-                InfoRow("Android", "${info.androidVersion} API ${info.apiLevel}")
-                InfoRow("Storage", "${formatByteSize(info.availableStorageBytes)} available")
+                SectionTitle("Runtime")
+                DataTable(
+                    rows = listOf(
+                        "Requested" to state.runtimeStatus.requested.label,
+                        "Active" to state.runtimeStatus.active.label,
+                        "Fallback" to (state.runtimeStatus.fallbackReason ?: "None"),
+                        "Streaming" to if (state.streamResponsesEnabled) "Enabled" else "Disabled",
+                        "Messages" to "${state.messages.size} current / $totalSessionMessages across ${state.chatSessions.size} sessions",
+                        "Latest error" to (state.errorText ?: "None")
+                    )
+                )
             }
         }
         item {
-            SectionTitle("Model")
             AppCard {
-                InfoRow("File", state.activeModel?.fileName ?: "None")
-                InfoRow("Path", state.activeModel?.absolutePath ?: "None")
-                InfoRow("Size", formatByteSize(state.activeModel?.sizeBytes ?: 0L))
-                InfoRow("Source", state.activeModel?.source ?: "None")
+                SectionTitle("Model")
+                DataTable(
+                    rows = listOf(
+                        "File" to (state.activeModel?.fileName ?: "None"),
+                        "Path" to (state.activeModel?.absolutePath ?: "None"),
+                        "Size" to formatByteSize(state.activeModel?.sizeBytes ?: 0L),
+                        "Source" to (state.activeModel?.sourceUrl ?: state.activeModel?.source ?: "None")
+                    )
+                )
             }
         }
         item {
-            SectionTitle("Runtime")
             AppCard {
-                DiagnosticRow("Requested runtime", state.runtimeStatus.requested.label)
-                DiagnosticRow("Active runtime", state.runtimeStatus.active.label)
-                DiagnosticRow("Runtime fallback", state.runtimeStatus.fallbackReason ?: "None")
-                InfoRow("Streaming", if (state.streamResponsesEnabled) "Enabled" else "Disabled")
-                InfoRow("Messages", state.messages.size.toString())
-                InfoRow("Last error", state.errorText ?: "None")
-                state.generationStats?.let { stats ->
-                    Text("Latest response", color = AppText, fontWeight = FontWeight.ExtraBold)
-                    InfoRow("Seconds", "%.2f".format(stats.elapsedSeconds))
-                    InfoRow("Tokens", stats.totalTokens.toString())
-                    InfoRow("Rate", "%.1f t/s".format(stats.tokensPerSecond))
+                PanelTitle("Generation") {
+                    StatusPill("Latest", if (state.generationStats == null) PillTone.Neutral else PillTone.Good)
+                }
+                val stats = state.generationStats
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    MetricBox(stats?.totalTokens?.toString() ?: "0", "tokens", Modifier.weight(1f))
+                    MetricBox(stats?.let { "%.1fs".format(it.elapsedSeconds) } ?: "0.0s", "elapsed", Modifier.weight(1f))
+                    MetricBox(stats?.let { "%.1f".format(it.tokensPerSecond) } ?: "0.0", "tok/s", Modifier.weight(1f))
                 }
             }
         }
         item {
-            SectionTitle("Memory")
             AppCard {
-                diagnosticMemoryRows(storedMemories).forEach { (label, value) ->
-                    InfoRow(label, value)
+                PanelTitle("Memories") {
+                    StatusPill("${storedMemories.size} entries")
                 }
+                DataTable(rows = diagnosticMemoryRows(storedMemories))
             }
         }
     }
@@ -102,6 +124,15 @@ fun loadDiagnosticMemories(rootDir: File): List<MemoryItem> =
     MemoryRepository(rootDir).loadMemories()
 
 @Composable
-private fun DiagnosticRow(label: String, value: String) {
-    InfoRow(label, value)
+private fun HealthCard(label: String, value: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, AppBorder, RoundedCornerShape(14.dp))
+            .background(AppPanelAlt.copy(alpha = 0.80f), RoundedCornerShape(14.dp))
+            .padding(10.dp)
+    ) {
+        Text(label, color = AppText, fontWeight = FontWeight.SemiBold)
+        Text(value, color = AppFaint, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 3.dp))
+    }
 }

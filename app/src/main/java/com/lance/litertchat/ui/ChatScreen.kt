@@ -4,13 +4,15 @@ import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -18,22 +20,23 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,22 +44,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
-import coil.compose.rememberAsyncImagePainter
-import java.io.File
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
-import java.util.Locale
+import coil.compose.rememberAsyncImagePainter
+import java.io.File
+import kotlinx.coroutines.delay
 
 @Composable
 fun ChatScreen(
@@ -73,25 +71,50 @@ fun ChatScreen(
 ) {
     var message by rememberSaveable { mutableStateOf("") }
     var imagePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var bannerMessage by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(bannerMessage) {
+        if (bannerMessage != null) {
+            delay(5_000)
+            bannerMessage = null
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .background(AppBackground)
+            .background(Color.Transparent)
     ) {
-        ChatHistoryBar(
+        bannerMessage?.let {
+            WarningBanner(
+                message = it,
+                tone = bannerToneForMessage(it),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+        }
+        SessionRail(
             state = state,
-            onNewChat = onNewChat,
+            onNewChat = {
+                if (state.isGenerating) {
+                    bannerMessage = "New chat blocked while generation is running"
+                } else {
+                    bannerMessage = null
+                    onNewChat()
+                }
+            },
             onSelectChat = onSelectChat,
-            onDeleteChat = onDeleteChat
+            onDeleteChat = {
+                onDeleteChat(it)
+                bannerMessage = "Chat deleted"
+            }
         )
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (state.messages.isEmpty()) {
                 item {
@@ -108,7 +131,7 @@ fun ChatScreen(
                 }
             }
             items(state.messages) { chatMessage ->
-                ChatBubble(chatMessage = chatMessage)
+                ChatBubble(chatMessage = chatMessage, stats = state.generationStats)
             }
         }
         Composer(
@@ -117,13 +140,21 @@ fun ChatScreen(
             imagePath = imagePath,
             onMessageChange = { message = it },
             onSend = {
+                bannerMessage = null
                 onSend(message, imagePath)
                 message = ""
                 imagePath = null
             },
-            onStop = onStop,
-            onImageSelected = { imagePath = it },
+            onStop = {
+                bannerMessage = "Generation stopped"
+                onStop()
+            },
+            onImageSelected = {
+                bannerMessage = null
+                imagePath = it
+            },
             onClearImage = { imagePath = null },
+            onBanner = { bannerMessage = it },
             onCreateImageCaptureFile = onCreateImageCaptureFile,
             onImageCaptureUri = onImageCaptureUri,
             onImportImage = onImportImage
@@ -131,193 +162,88 @@ fun ChatScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatHistoryBar(
+private fun SessionRail(
     state: AppState,
     onNewChat: () -> Unit,
     onSelectChat: (String) -> Unit,
     onDeleteChat: (String) -> Unit
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    val sortedSessions = state.chatSessions.sortedByDescending { it.updatedAtEpochMillis }
-    val currentTitle = state.activeChatSession?.title ?: "No chat selected"
+    var pendingDeleteSessionId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pendingDeleteSession = state.chatSessions.firstOrNull { it.id == pendingDeleteSessionId }
+    val sessions = state.chatSessions.sortedByDescending { it.updatedAtEpochMillis }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(AppSurface)
-            .border(1.dp, AppBorder)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("History", color = AppText, fontWeight = FontWeight.Bold)
-            Button(
-                onClick = {
-                    expanded = false
-                    onNewChat()
-                },
-                enabled = !state.isGenerating,
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AppAccent,
-                    contentColor = Color.White,
-                    disabledContainerColor = Color(0xFFE3E5EB),
-                    disabledContentColor = AppMuted
-                )
-            ) {
-                Text("New Chat", fontWeight = FontWeight.Bold)
-            }
-        }
-
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val dropdownWidth = maxWidth
-            val popupOffsetY = with(LocalDensity.current) { 54.dp.roundToPx() }
-            Button(
-                onClick = { expanded = true },
-                enabled = !state.isGenerating && sortedSessions.isNotEmpty(),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AppBackground,
-                    contentColor = AppText,
-                    disabledContainerColor = Color(0xFFE3E5EB),
-                    disabledContentColor = AppMuted
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(currentTitle, maxLines = 1, fontWeight = FontWeight.SemiBold)
-                    Text("v", color = AppMuted, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            if (expanded) {
-                Popup(
-                    alignment = Alignment.TopStart,
-                    offset = IntOffset(0, popupOffsetY),
-                    onDismissRequest = { expanded = false },
-                    properties = PopupProperties(focusable = true)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .width(dropdownWidth)
-                            .background(AppSurface, RoundedCornerShape(12.dp))
-                            .border(1.dp, AppBorder, RoundedCornerShape(12.dp))
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 256.dp)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            sortedSessions.forEach { session ->
-                                ChatHistoryMenuItem(
-                                    title = session.title,
-                                    selected = session.id == state.activeChatSessionId,
-                                    onSelect = {
-                                        expanded = false
-                                        onSelectChat(session.id)
-                                    },
-                                    onDelete = {
-                                        onDeleteChat(session.id)
-                                        if (sortedSessions.size <= 1) {
-                                            expanded = false
-                                        }
-                                    }
-                                )
-                            }
-                        }
+    if (pendingDeleteSession != null) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteSessionId = null },
+            containerColor = AppPanel,
+            titleContentColor = AppText,
+            textContentColor = AppMuted,
+            title = { Text("Delete chat?") },
+            text = { Text(pendingDeleteSession.title) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val sessionId = pendingDeleteSession.id
+                        pendingDeleteSessionId = null
+                        onDeleteChat(sessionId)
                     }
+                ) {
+                    Text("Delete", color = AppDanger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteSessionId = null }) {
+                    Text("Cancel", color = AppMuted, fontWeight = FontWeight.Bold)
                 }
             }
-        }
+        )
     }
-}
 
-@Composable
-private fun ChatHistoryMenuItem(
-    title: String,
-    selected: Boolean,
-    onSelect: () -> Unit,
-    onDelete: () -> Unit
-) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .background(if (selected) AppAccentSoft else Color(0xFFF8FAFD))
-            .border(
-                width = 0.dp,
-                color = Color.Transparent
-            )
-            .padding(start = 18.dp, end = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Button(
-            onClick = onSelect,
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier
-                .weight(1f)
-                .height(48.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Transparent,
-                contentColor = if (selected) AppAccent else AppText,
-                disabledContainerColor = Color.Transparent,
-                disabledContentColor = AppMuted
+        SessionChip("+ New", selected = false, onClick = onNewChat, onLongClick = {})
+        sessions.forEach { session ->
+            SessionChip(
+                text = session.title,
+                selected = session.id == state.activeChatSessionId,
+                onClick = { if (!state.isGenerating) onSelectChat(session.id) },
+                onLongClick = {
+                    if (!state.isGenerating) pendingDeleteSessionId = session.id
+                }
             )
-        ) {
-            Text(
-                title,
-                maxLines = 1,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-        Button(
-            onClick = onDelete,
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.size(42.dp),
-            contentPadding = PaddingValues(0.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFFDECEC),
-                contentColor = AppDanger,
-                disabledContainerColor = Color(0xFFE3E5EB),
-                disabledContentColor = AppMuted
-            )
-        ) {
-            TrashIcon(color = AppDanger)
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrashIcon(color: Color) {
-    Canvas(modifier = Modifier.size(18.dp)) {
-        val stroke = Stroke(width = 2.2f, cap = StrokeCap.Round)
-        val w = size.width
-        val h = size.height
-
-        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.24f, h * 0.30f), end = androidx.compose.ui.geometry.Offset(w * 0.76f, h * 0.30f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.40f, h * 0.18f), end = androidx.compose.ui.geometry.Offset(w * 0.60f, h * 0.18f), strokeWidth = 2.2f, cap = StrokeCap.Round)
-        drawRoundRect(
-            color = color,
-            topLeft = androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.36f),
-            size = androidx.compose.ui.geometry.Size(w * 0.40f, h * 0.48f),
-            style = stroke
+private fun SessionChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .background(if (selected) AppAccentSoft else AppPanel, RoundedCornerShape(999.dp))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            color = if (selected) Color(0xFFE9B7A6) else AppMuted,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
-        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.43f, h * 0.46f), end = androidx.compose.ui.geometry.Offset(w * 0.43f, h * 0.74f), strokeWidth = 1.8f, cap = StrokeCap.Round)
-        drawLine(color, start = androidx.compose.ui.geometry.Offset(w * 0.57f, h * 0.46f), end = androidx.compose.ui.geometry.Offset(w * 0.57f, h * 0.74f), strokeWidth = 1.8f, cap = StrokeCap.Round)
     }
 }
 
@@ -331,21 +257,20 @@ private fun Composer(
     onStop: () -> Unit,
     onImageSelected: (String) -> Unit,
     onClearImage: () -> Unit,
+    onBanner: (String) -> Unit,
     onCreateImageCaptureFile: () -> File,
     onImageCaptureUri: (File) -> Uri,
     onImportImage: (Uri) -> Result<String>
 ) {
+    val composerControlHeight = 56.dp
+    var menuOpen by rememberSaveable { mutableStateOf(false) }
     var pendingCapturePath by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captured ->
         val path = pendingCapturePath
-        if (captured && path != null) {
-            onImageSelected(path)
-        }
+        if (captured && path != null) onImageSelected(path)
         pendingCapturePath = null
     }
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
             val file = onCreateImageCaptureFile()
             pendingCapturePath = file.absolutePath
@@ -354,22 +279,26 @@ private fun Composer(
     }
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
-            onImportImage(it).onSuccess(onImageSelected)
+            onImportImage(it).onSuccess(onImageSelected).onFailure { error ->
+                onBanner(error.message ?: "Image picker unavailable")
+            }
         }
     }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(AppSurface)
-            .border(1.dp, AppBorder)
+            .background(AppBackground)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        GenerationStatsRow(stats = state.generationStats, streaming = state.streamResponsesEnabled)
         imagePath?.let { path ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, AppBorder, RoundedCornerShape(14.dp))
+                    .background(AppPanel, RoundedCornerShape(14.dp))
+                    .padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -380,137 +309,119 @@ private fun Composer(
                     modifier = Modifier
                         .size(52.dp)
                         .background(AppBackground, RoundedCornerShape(10.dp))
-                        .border(1.dp, AppBorder, RoundedCornerShape(10.dp))
                 )
                 Text("Image attached", color = AppText, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Button(
-                    onClick = onClearImage,
-                    enabled = !state.isGenerating,
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFFDECEC),
-                        contentColor = AppDanger,
-                        disabledContainerColor = Color(0xFFE3E5EB),
-                        disabledContentColor = AppMuted
-                    )
-                ) {
-                    Text("Remove", fontWeight = FontWeight.Bold)
-                }
+                CompactActionButton("Remove", onClick = onClearImage, danger = true)
             }
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, AppBorder, RoundedCornerShape(23.dp))
-                .background(AppSurface, RoundedCornerShape(23.dp)),
+                .border(1.dp, AppBorder, RoundedCornerShape(18.dp))
+                .background(AppPanel.copy(alpha = 0.88f), RoundedCornerShape(18.dp))
+                .padding(9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Box {
+                CompactActionButton(
+                    "+",
+                    onClick = { menuOpen = true },
+                    enabled = state.canChat || state.isGenerating,
+                    modifier = Modifier
+                        .width(composerControlHeight)
+                        .height(composerControlHeight)
+                )
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = AppPanel,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    border = BorderStroke(1.dp, AppBorder)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Camera", color = AppText, fontWeight = FontWeight.Bold) },
+                        onClick = {
+                            menuOpen = false
+                            if (state.isGenerating) {
+                                onBanner("Camera unavailable while generation is running")
+                            } else {
+                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Gallery", color = AppText, fontWeight = FontWeight.Bold) },
+                        onClick = {
+                            menuOpen = false
+                            if (state.isGenerating) {
+                                onBanner("Image picker unavailable while generation is running")
+                            } else {
+                                galleryLauncher.launch("image/*")
+                            }
+                        }
+                    )
+                }
+            }
             OutlinedTextField(
                 value = message,
                 onValueChange = onMessageChange,
-                placeholder = { Text("Ask about Kotlin app state...") },
+                placeholder = { Text(if (state.isGenerating) "Generation running..." else "Chat...") },
                 modifier = Modifier
                     .weight(1f)
-                    .heightIn(min = 50.dp),
+                    .height(composerControlHeight),
                 enabled = !state.isGenerating,
-                singleLine = true,
+                minLines = 1,
+                maxLines = 1,
                 colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = AppText,
+                    unfocusedTextColor = AppText,
+                    disabledTextColor = AppFaint,
                     focusedBorderColor = Color.Transparent,
                     unfocusedBorderColor = Color.Transparent,
                     disabledBorderColor = Color.Transparent,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent
+                    focusedContainerColor = AppBackground,
+                    unfocusedContainerColor = AppBackground,
+                    disabledContainerColor = AppBackground
                 )
             )
-            Button(
-                onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
-                enabled = state.canChat && !state.isGenerating,
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AppBackground,
-                    contentColor = AppText,
-                    disabledContainerColor = Color(0xFFE3E5EB),
-                    disabledContentColor = AppMuted
-                ),
-                modifier = Modifier.heightIn(min = 50.dp)
-            ) {
-                Text("Cam", fontWeight = FontWeight.Bold)
-            }
-            Button(
-                onClick = { galleryLauncher.launch("image/*") },
-                enabled = state.canChat && !state.isGenerating,
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AppBackground,
-                    contentColor = AppText,
-                    disabledContainerColor = Color(0xFFE3E5EB),
-                    disabledContentColor = AppMuted
-                ),
-                modifier = Modifier.heightIn(min = 50.dp)
-            ) {
-                Text("Img", fontWeight = FontWeight.Bold)
-            }
-            Button(
+            CompactActionButton(
+                text = if (state.isGenerating) "Stop" else ">",
                 onClick = if (state.isGenerating) onStop else onSend,
                 enabled = state.isGenerating || (state.canChat && (message.isNotBlank() || imagePath != null)),
-                shape = RoundedCornerShape(topEnd = 23.dp, bottomEnd = 23.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (state.isGenerating) Color(0xFFFDECEC) else AppAccent,
-                    contentColor = if (state.isGenerating) AppDanger else Color.White,
-                    disabledContainerColor = Color(0xFFE3E5EB),
-                    disabledContentColor = AppMuted
-                ),
-                modifier = Modifier.heightIn(min = 50.dp)
-            ) {
-                Text(if (state.isGenerating) "Stop" else "Send", fontWeight = FontWeight.Bold)
-            }
+                primary = !state.isGenerating,
+                danger = state.isGenerating,
+                modifier = Modifier
+                    .width(composerControlHeight)
+                    .height(composerControlHeight)
+            )
         }
     }
 }
 
 @Composable
-private fun ChatBubble(chatMessage: ChatMessage) {
+private fun ChatBubble(chatMessage: ChatMessage, stats: GenerationStats?) {
     val isUser = chatMessage.role == "user"
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom
     ) {
-        if (!isUser) {
-            Avatar()
-            Spacer(Modifier.width(8.dp))
-        }
         Box(
             modifier = Modifier
-                .fillMaxWidth(if (isUser) 0.82f else 0.88f)
+                .fillMaxWidth(if (isUser) 0.88f else 0.92f)
                 .background(
-                    color = when {
-                        isUser -> AppAccent
-                        chatMessage.isLoading -> AppAccentSoft
-                        else -> AppSurface
-                    },
-                    shape = RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = if (isUser) 18.dp else 6.dp,
-                        bottomEnd = if (isUser) 6.dp else 18.dp
-                    )
+                    color = if (isUser) AppAccentSoft else AppPanel.copy(alpha = 0.88f),
+                    shape = RoundedCornerShape(18.dp)
                 )
                 .border(
                     width = 1.dp,
-                    color = if (isUser) AppAccent else AppBorder,
-                    shape = RoundedCornerShape(
-                        topStart = 18.dp,
-                        topEnd = 18.dp,
-                        bottomStart = if (isUser) 18.dp else 6.dp,
-                        bottomEnd = if (isUser) 6.dp else 18.dp
-                    )
+                    color = if (isUser) AppAccent.copy(alpha = 0.45f) else AppBorder,
+                    shape = RoundedCornerShape(18.dp)
                 )
-                .padding(horizontal = 13.dp, vertical = 11.dp)
+                .padding(12.dp)
         ) {
             if (isUser) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -521,47 +432,28 @@ private fun ChatBubble(chatMessage: ChatMessage) {
                             contentScale = ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(150.dp)
-                                .background(Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                                .height(128.dp)
+                                .background(AppBackground, RoundedCornerShape(14.dp))
                         )
                     }
-                    if (chatMessage.content.isNotBlank()) {
-                        Text(chatMessage.content, color = Color.White)
-                    }
+                    if (chatMessage.content.isNotBlank()) Text(chatMessage.content, color = AppText)
                 }
             } else {
-                ChatMessageContent(chatMessage = chatMessage)
+                ChatMessageContent(chatMessage = chatMessage, stats = stats)
             }
         }
     }
 }
 
 @Composable
-private fun Avatar() {
-    Box(
-        modifier = Modifier
-            .background(AppText, RoundedCornerShape(999.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("AI", color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
-    }
-}
-
-@Composable
 private fun AssistantBubble(content: @Composable () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom
-    ) {
-        Avatar()
-        Spacer(Modifier.width(8.dp))
+    Row(modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .background(AppSurface, RoundedCornerShape(18.dp))
+                .fillMaxWidth(0.92f)
+                .background(AppPanel.copy(alpha = 0.88f), RoundedCornerShape(18.dp))
                 .border(1.dp, AppBorder, RoundedCornerShape(18.dp))
-                .padding(horizontal = 13.dp, vertical = 11.dp)
+                .padding(12.dp)
         ) {
             content()
         }
@@ -569,13 +461,12 @@ private fun AssistantBubble(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ChatMessageContent(chatMessage: ChatMessage) {
+private fun ChatMessageContent(chatMessage: ChatMessage, stats: GenerationStats?) {
     if (chatMessage.isLoading) {
-        Text(
-            text = chatMessage.content,
-            fontStyle = FontStyle.Italic,
-            color = AppMuted
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(chatMessage.content, fontStyle = FontStyle.Italic, color = AppMuted)
+            StreamingDots()
+        }
         return
     }
 
@@ -586,7 +477,8 @@ private fun ChatMessageContent(chatMessage: ChatMessage) {
                     text = block.text,
                     color = AppText,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Medium
                 )
                 is MessageBlock.Paragraph -> Text(markdownText(block.text), color = AppText)
                 is MessageBlock.Bullet -> Row {
@@ -618,31 +510,26 @@ private fun MarkdownTable(rows: List<List<String>>) {
     }
 }
 
-private fun markdownText(text: String) = buildAnnotatedString {
-    val parts = text.split("**")
-    parts.forEachIndexed { index, part ->
-        if (index % 2 == 1) {
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                append(part)
-            }
-        } else {
-            append(part)
+@Composable
+private fun StreamingDots() {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(3) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(AppAccent, RoundedCornerShape(999.dp))
+            )
         }
     }
 }
 
-@Composable
-private fun GenerationStatsRow(stats: GenerationStats?, streaming: Boolean) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (stats != null) {
-            StatusPill("${stats.totalTokens} tokens", PillTone.Accent)
-            StatusPill(String.format(Locale.US, "%.2fs", stats.elapsedSeconds))
-            StatusPill(String.format(Locale.US, "%.1f t/s", stats.tokensPerSecond), PillTone.Good)
+private fun markdownText(text: String) = buildAnnotatedString {
+    val parts = text.split("**")
+    parts.forEachIndexed { index, part ->
+        if (index % 2 == 1) {
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(part) }
+        } else {
+            append(part)
         }
-        StatusPill(if (streaming) "streaming" else "full response", if (streaming) PillTone.Good else PillTone.Neutral)
     }
 }

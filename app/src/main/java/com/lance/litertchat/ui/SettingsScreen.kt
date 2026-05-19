@@ -14,17 +14,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lance.litertchat.prompt.PromptFormatterRepository
+import kotlinx.coroutines.delay
 
 @Composable
 fun SettingsScreen(
@@ -47,38 +49,49 @@ fun SettingsScreen(
     var body by rememberSaveable { mutableStateOf("") }
     var memoryKey by rememberSaveable { mutableStateOf("") }
     var memoryValue by rememberSaveable { mutableStateOf("") }
+    var bannerMessage by rememberSaveable { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(bannerMessage) {
+        if (bannerMessage != null) {
+            delay(5_000)
+            bannerMessage = null
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        bannerMessage?.let {
+            item { WarningBanner(it, bannerToneForMessage(it)) }
+        }
         item {
-            SectionTitle("Generation")
             AppCard {
+                SectionTitle("Runtime and generation")
                 SettingSwitchRow(
                     title = "Stream responses",
-                    help = "Show assistant text as it arrives.",
+                    help = "Show assistant text as tokens arrive.",
                     checked = state.streamResponsesEnabled,
                     onCheckedChange = onStreamResponsesChanged
                 )
                 SettingSwitchRow(
                     title = "Use GPU backend",
-                    help = "Run LiteRT-LM with the Android GPU backend when available.",
+                    help = "Requested runtime: GPU. Active runtime: ${state.runtimeStatus.active.label}.",
                     checked = state.gpuBackendEnabled,
                     onCheckedChange = onGpuBackendChanged
                 )
                 SettingSwitchRow(
-                    title = "Use NPU backend",
-                    help = "Try the experimental LiteRT-LM NPU backend for supported devices and models.",
+                    title = "Experimental NPU backend",
+                    help = "Supported devices and model files only.",
                     checked = state.npuBackendEnabled,
                     onCheckedChange = onNpuBackendChanged
                 )
                 SettingSwitchRow(
-                    title = "Enable Gemma 4 MTP",
-                    help = "Use speculative decoding for MTP-capable Gemma 4 LiteRT-LM models.",
+                    title = "Gemma 4 MTP speculative decoding",
+                    help = "Requires active GPU backend.",
                     checked = state.gemmaMtpEnabled,
                     enabled = state.gpuBackendEnabled,
                     onCheckedChange = onGemmaMtpChanged
@@ -86,41 +99,22 @@ fun SettingsScreen(
             }
         }
         item {
-            SectionTitle("Memory")
             AppCard {
-                OutlinedTextField(
-                    value = memoryKey,
-                    onValueChange = { memoryKey = it },
-                    label = { Text("Memory key") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = AppBackground,
-                        unfocusedContainerColor = AppBackground
-                    )
-                )
-                OutlinedTextField(
-                    value = memoryValue,
-                    onValueChange = { memoryValue = it },
-                    label = { Text("Memory value") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 2,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = AppBackground,
-                        unfocusedContainerColor = AppBackground
-                    )
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PanelTitle("Memory") {
+                    StatusPill("${state.memories.size} saved")
+                }
+                DesignTextField(memoryKey, { memoryKey = it }, "Key", singleLine = true)
+                DesignTextField(memoryValue, { memoryValue = it }, "Value", minLines = 3)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     CompactActionButton(
-                        text = "Save",
+                        text = "Save memory",
                         enabled = memoryKey.isNotBlank() && memoryValue.isNotBlank(),
                         primary = true,
                         onClick = {
                             onUpsertMemory(memoryKey, memoryValue)
                             memoryKey = ""
                             memoryValue = ""
+                            bannerMessage = "Memory saved"
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -133,26 +127,89 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+                state.memories.take(3).forEach { memory ->
+                    ListItemBlock(title = memory.key, value = memory.value)
+                }
             }
         }
         item {
-            SectionTitle("Saved memories")
-        }
-        items(state.memories) { memory ->
             AppCard {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(memory.key, color = AppText, fontWeight = FontWeight.ExtraBold)
-                    Text(
-                        text = memory.value,
-                        color = AppMuted,
-                        modifier = Modifier
-                            .padding(top = 7.dp)
-                            .border(1.dp, AppBorder, RoundedCornerShape(12.dp))
-                            .background(AppBackground, RoundedCornerShape(12.dp))
-                            .padding(10.dp)
+                PanelTitle("Prompt formatter") {
+                    StatusPill("Active", PillTone.Accent)
+                }
+                DesignTextField(name, { name = it }, "Name", singleLine = true)
+                DesignTextField(body, { body = it }, "Body", minLines = 5)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    CompactActionButton(
+                        text = if (editingId == null) "Create" else "Save formatter",
+                        enabled = name.isNotBlank() && body.isNotBlank(),
+                        primary = true,
+                        onClick = {
+                            val activeEditingId = editingId
+                            if (activeEditingId == null) {
+                                onCreateFormatter(name, body)
+                                bannerMessage = "Formatter created"
+                            } else {
+                                onUpdateFormatter(activeEditingId, name, body)
+                                bannerMessage = "Formatter updated"
+                            }
+                            editingId = null
+                            name = ""
+                            body = ""
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    CompactActionButton(
+                        text = "Reset default",
+                        onClick = {
+                            onResetDefaultFormatter()
+                            bannerMessage = "Default formatter reset"
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                state.promptFormatters.forEach { formatter ->
+                    ListItemBlock(
+                        title = formatter.name,
+                        value = if (formatter.id == state.activePromptFormatterId) {
+                            "Selected. ${formatter.body}"
+                        } else {
+                            formatter.body
+                        }
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        CompactActionButton(
+                            "Use",
+                            onClick = {
+                                onSelectFormatter(formatter.id)
+                                bannerMessage = "${formatter.name} selected"
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        CompactActionButton(
+                            "Edit",
+                            onClick = {
+                                editingId = formatter.id
+                                name = formatter.name
+                                body = formatter.body
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        CompactActionButton(
+                            "Delete",
+                            enabled = formatter.id != PromptFormatterRepository.DEFAULT_FORMATTER_ID,
+                            onClick = { onDeleteFormatter(formatter.id) },
+                            danger = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+        items(state.memories.drop(3)) { memory ->
+            AppCard {
+                ListItemBlock(title = memory.key, value = memory.value)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     CompactActionButton(
                         "Edit",
                         onClick = {
@@ -164,119 +221,53 @@ fun SettingsScreen(
                     CompactActionButton(
                         "Delete",
                         onClick = { onDeleteMemory(memory.key) },
+                        danger = true,
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
         }
-        item {
-            SectionTitle("Formatter editor")
-            AppCard {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Formatter name") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = AppBackground,
-                        unfocusedContainerColor = AppBackground
-                    )
-                )
-                OutlinedTextField(
-                    value = body,
-                    onValueChange = { body = it },
-                    label = { Text("Prompt formatter") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 5,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = AppBackground,
-                        unfocusedContainerColor = AppBackground
-                    )
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CompactActionButton(
-                        text = if (editingId == null) "Create" else "Save",
-                        enabled = name.isNotBlank() && body.isNotBlank(),
-                        primary = true,
-                        onClick = {
-                            val activeEditingId = editingId
-                            if (activeEditingId == null) {
-                                onCreateFormatter(name, body)
-                            } else {
-                                onUpdateFormatter(activeEditingId, name, body)
-                            }
-                            editingId = null
-                            name = ""
-                            body = ""
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    CompactActionButton(
-                        text = "New",
-                        onClick = {
-                            editingId = null
-                            name = ""
-                            body = ""
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    CompactActionButton(
-                        text = "Reset",
-                        onClick = onResetDefaultFormatter,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-        item {
-            SectionTitle("Formatters")
-        }
-        items(state.promptFormatters) { formatter ->
-            AppCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(formatter.name, color = AppText, fontWeight = FontWeight.ExtraBold)
-                        Text(
-                            text = formatter.body,
-                            color = AppMuted,
-                            maxLines = 4,
-                            modifier = Modifier
-                                .padding(top = 7.dp)
-                                .border(1.dp, AppBorder, RoundedCornerShape(12.dp))
-                                .background(AppBackground, RoundedCornerShape(12.dp))
-                                .padding(10.dp)
-                        )
-                    }
-                    if (formatter.id == state.activePromptFormatterId) {
-                        StatusPill("Active", PillTone.Good)
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CompactActionButton("Use", onClick = { onSelectFormatter(formatter.id) }, modifier = Modifier.weight(1f))
-                    CompactActionButton(
-                        "Edit",
-                        onClick = {
-                            editingId = formatter.id
-                            name = formatter.name
-                            body = formatter.body
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    CompactActionButton(
-                        "Delete",
-                        enabled = formatter.id != PromptFormatterRepository.DEFAULT_FORMATTER_ID,
-                        onClick = { onDeleteFormatter(formatter.id) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
+    }
+}
+
+@Composable
+private fun DesignTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    singleLine: Boolean = false,
+    minLines: Int = 1
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = singleLine,
+        minLines = minLines,
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = AppText,
+            unfocusedTextColor = AppText,
+            focusedContainerColor = AppBackground,
+            unfocusedContainerColor = AppBackground,
+            focusedBorderColor = AppBorder,
+            unfocusedBorderColor = AppBorder
+        )
+    )
+}
+
+@Composable
+private fun ListItemBlock(title: String, value: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, AppBorder, RoundedCornerShape(14.dp))
+            .background(AppPanelAlt.copy(alpha = 0.80f), RoundedCornerShape(14.dp))
+            .padding(10.dp)
+    ) {
+        Text(title, color = AppText, fontWeight = FontWeight.SemiBold)
+        Text(value, color = AppFaint, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 3.dp))
     }
 }
 
@@ -289,13 +280,16 @@ private fun SettingSwitchRow(
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.46f)
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = AppText, fontWeight = FontWeight.Bold)
-            Text(help, color = AppMuted)
+            Text(title, color = AppText, fontWeight = FontWeight.SemiBold)
+            Text(help, color = AppFaint, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        AppSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
