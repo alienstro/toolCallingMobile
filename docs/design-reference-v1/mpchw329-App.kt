@@ -259,7 +259,7 @@ private enum class AppRoute(
 ) {
     Chat("chat", "Chat"),
     Models("models", "Models"),
-    Diagnostics("diagnostics", "Diag"),
+    Diagnostics("diagnostics", "Diagnosis"),
     Settings("settings", "Settings")
 }
 

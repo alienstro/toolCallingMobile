@@ -300,7 +300,7 @@ private enum class AppRoute(
     Chat("chat", "Chat"),
     Models("models", "Models"),
     Settings("settings", "Settings"),
-    Diagnostics("diagnostics", "Diag")
+    Diagnostics("diagnostics", "Diagnosis")
 }
 
 @Composable
