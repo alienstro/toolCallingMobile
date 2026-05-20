@@ -644,15 +644,25 @@ class AppViewModel(
         viewModelScope.launch {
             runCatching {
                 withContext(ioDispatcher) {
-                    val destination = File(
-                        repository.embeddingModelDirectory(),
-                        "embedding-${System.currentTimeMillis()}.gguf"
-                    )
-                    context.contentResolver.openInputStream(uri).use { input ->
-                        requireNotNull(input) { "Could not open selected file." }
-                        destination.outputStream().use { output -> input.copyTo(output) }
+                    // Delete the previously imported model file if it lives in our embedding-models dir
+                    val embeddingDir = repository.embeddingModelDirectory()
+                    mutableState.value.embeddingModelPath?.let { oldPath ->
+                        val oldFile = File(oldPath)
+                        if (oldFile.parentFile?.canonicalPath == embeddingDir.canonicalPath) {
+                            oldFile.delete()
+                        }
                     }
-                    require(destination.length() > 0L) { "Selected file was empty." }
+                    val destination = File(embeddingDir, "embedding-${System.currentTimeMillis()}.gguf")
+                    try {
+                        context.contentResolver.openInputStream(uri).use { input ->
+                            requireNotNull(input) { "Could not open selected file." }
+                            destination.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        require(destination.length() > 0L) { "Selected file was empty." }
+                    } catch (e: Exception) {
+                        destination.delete()
+                        throw e
+                    }
                     destination
                 }
             }.onSuccess { file ->
