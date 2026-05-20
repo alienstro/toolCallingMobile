@@ -83,4 +83,9 @@ class EmbeddingStoreTest {
     fun cosineSimilarityZeroVectorReturnsZero() {
         assertEquals(0.0f, cosineSimilarity(floatArrayOf(0f, 0f), floatArrayOf(1f, 1f)), 0.001f)
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun cosineSimilarityMismatchedLengthsThrows() {
+        cosineSimilarity(floatArrayOf(1f, 0f), floatArrayOf(1f, 0f, 0f))
+    }
 }

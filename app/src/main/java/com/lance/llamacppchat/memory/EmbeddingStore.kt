@@ -35,14 +35,18 @@ class EmbeddingStore(rootDir: File) {
         val result = mutableMapOf<String, FloatArray>()
         try {
             DataInputStream(FileInputStream(embeddingsFile)).use { input ->
-                while (input.available() > 0) {
-                    val keyLength = input.readInt()
-                    val keyBytes = ByteArray(keyLength)
-                    input.readFully(keyBytes)
-                    val key = String(keyBytes, Charsets.UTF_8)
-                    val vectorLength = input.readInt()
-                    val vector = FloatArray(vectorLength) { input.readFloat() }
-                    result[key] = vector
+                try {
+                    while (true) {
+                        val keyLength = input.readInt()
+                        val keyBytes = ByteArray(keyLength)
+                        input.readFully(keyBytes)
+                        val key = String(keyBytes, Charsets.UTF_8)
+                        val vectorLength = input.readInt()
+                        val vector = FloatArray(vectorLength) { input.readFloat() }
+                        result[key] = vector
+                    }
+                } catch (_: java.io.EOFException) {
+                    // Clean end of file
                 }
             }
         } catch (_: Exception) {
@@ -51,6 +55,7 @@ class EmbeddingStore(rootDir: File) {
         return result
     }
 
+    @Synchronized
     fun findTopK(queryVector: FloatArray, k: Int): List<String> =
         loadAll().entries
             .map { (key, vec) -> key to cosineSimilarity(queryVector, vec) }
@@ -73,6 +78,7 @@ class EmbeddingStore(rootDir: File) {
 }
 
 fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
+    require(a.size == b.size) { "Vectors must have the same length: ${a.size} vs ${b.size}" }
     var dot = 0.0
     var normA = 0.0
     var normB = 0.0
