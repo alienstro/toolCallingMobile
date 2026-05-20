@@ -63,6 +63,12 @@ class LlamaCppKeyboardService :
         super.onCreate()
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.currentState = Lifecycle.State.CREATED
+        // Compose walks up to the window root to find the lifecycle owner — set it there too
+        window?.window?.decorView?.also { decorView ->
+            decorView.setViewTreeLifecycleOwner(this)
+            decorView.setViewTreeViewModelStoreOwner(this)
+            decorView.setViewTreeSavedStateRegistryOwner(this)
+        }
         bindService(
             Intent(this, InferenceService::class.java),
             serviceConnection,
