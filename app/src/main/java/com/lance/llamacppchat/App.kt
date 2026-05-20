@@ -20,9 +20,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import android.content.Intent
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.FileProvider
+import com.lance.llamacppchat.overlay.OverlayService
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -64,6 +69,14 @@ import com.lance.llamacppchat.ui.chromeRuntimeStatus
 fun LlamaCppChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
     val context = LocalContext.current.applicationContext
     val state by appViewModel.state.collectAsState()
+    val overlayPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (Settings.canDrawOverlays(context)) {
+            appViewModel.setOverlayEnabled(true)
+            context.startForegroundService(Intent(context, OverlayService::class.java))
+        }
+    }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: AppRoute.Chat.route
@@ -163,7 +176,25 @@ fun LlamaCppChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                                 onStreamResponsesChanged = appViewModel::setStreamResponsesEnabled,
                                 onGpuBackendChanged = appViewModel::setGpuBackendEnabled,
                                 onNpuBackendChanged = appViewModel::setNpuBackendEnabled,
-                                onGemmaMtpChanged = appViewModel::setGemmaMtpEnabled
+                                onGemmaMtpChanged = appViewModel::setGemmaMtpEnabled,
+                                onOverlayChanged = { enabled ->
+                                    if (enabled) {
+                                        if (Settings.canDrawOverlays(context)) {
+                                            appViewModel.setOverlayEnabled(true)
+                                            context.startForegroundService(Intent(context, OverlayService::class.java))
+                                        } else {
+                                            overlayPermissionLauncher.launch(
+                                                Intent(
+                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                    android.net.Uri.parse("package:${context.packageName}")
+                                                )
+                                            )
+                                        }
+                                    } else {
+                                        appViewModel.setOverlayEnabled(false)
+                                        context.stopService(Intent(context, OverlayService::class.java))
+                                    }
+                                }
                             )
                         }
                     }

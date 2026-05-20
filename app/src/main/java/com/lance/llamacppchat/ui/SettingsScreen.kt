@@ -42,7 +42,8 @@ fun SettingsScreen(
     onStreamResponsesChanged: (Boolean) -> Unit,
     onGpuBackendChanged: (Boolean) -> Unit,
     onNpuBackendChanged: (Boolean) -> Unit,
-    onGemmaMtpChanged: (Boolean) -> Unit
+    onGemmaMtpChanged: (Boolean) -> Unit,
+    onOverlayChanged: (Boolean) -> Unit,
 ) {
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -80,6 +81,17 @@ fun SettingsScreen(
                 InfoRow(
                     label = "llama.cpp runtime",
                     value = "CPU GGUF, 4 threads, 1024 context, 1024 max generated tokens."
+                )
+            }
+        }
+        item {
+            AppCard {
+                SectionTitle("AI Overlay")
+                SettingSwitchRow(
+                    title = "Floating AI button",
+                    help = "Show a draggable AI button over all apps. Requires 'Display over other apps' permission.",
+                    checked = state.overlayEnabled,
+                    onCheckedChange = onOverlayChanged
                 )
             }
         }

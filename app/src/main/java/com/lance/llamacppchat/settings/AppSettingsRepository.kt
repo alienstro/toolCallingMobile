@@ -7,7 +7,8 @@ data class AppSettings(
     val streamResponsesEnabled: Boolean = true,
     val gpuBackendEnabled: Boolean = false,
     val npuBackendEnabled: Boolean = false,
-    val gemmaMtpEnabled: Boolean = false
+    val gemmaMtpEnabled: Boolean = false,
+    val overlayEnabled: Boolean = false
 )
 
 class AppSettingsRepository(private val rootDir: File) {
@@ -27,7 +28,8 @@ class AppSettingsRepository(private val rootDir: File) {
             gpuBackendEnabled = gpuBackendEnabled,
             npuBackendEnabled = npuBackendEnabled,
             gemmaMtpEnabled = gpuBackendEnabled &&
-                properties.booleanValue(KEY_GEMMA_MTP_ENABLED, defaultValue = false)
+                properties.booleanValue(KEY_GEMMA_MTP_ENABLED, defaultValue = false),
+            overlayEnabled = properties.booleanValue(KEY_OVERLAY_ENABLED, defaultValue = false)
         )
     }
 
@@ -57,6 +59,10 @@ class AppSettingsRepository(private val rootDir: File) {
         )
     }
 
+    fun setOverlayEnabled(enabled: Boolean) {
+        save(load().copy(overlayEnabled = enabled))
+    }
+
     fun setGemmaMtpEnabled(enabled: Boolean) {
         val currentSettings = load()
         save(
@@ -73,6 +79,7 @@ class AppSettingsRepository(private val rootDir: File) {
         properties.setProperty(KEY_GPU_BACKEND_ENABLED, settings.gpuBackendEnabled.toString())
         properties.setProperty(KEY_NPU_BACKEND_ENABLED, settings.npuBackendEnabled.toString())
         properties.setProperty(KEY_GEMMA_MTP_ENABLED, settings.gemmaMtpEnabled.toString())
+        properties.setProperty(KEY_OVERLAY_ENABLED, settings.overlayEnabled.toString())
         settingsFile.outputStream().use { output ->
             properties.store(output, null)
         }
@@ -86,5 +93,6 @@ class AppSettingsRepository(private val rootDir: File) {
         const val KEY_GPU_BACKEND_ENABLED = "gpuBackendEnabled"
         const val KEY_NPU_BACKEND_ENABLED = "npuBackendEnabled"
         const val KEY_GEMMA_MTP_ENABLED = "gemmaMtpEnabled"
+        const val KEY_OVERLAY_ENABLED = "overlayEnabled"
     }
 }

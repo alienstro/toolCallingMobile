@@ -70,6 +70,7 @@ data class AppState(
     val gpuBackendEnabled: Boolean = false,
     val npuBackendEnabled: Boolean = false,
     val gemmaMtpEnabled: Boolean = false,
+    val overlayEnabled: Boolean = false,
     val runtimeStatus: InferenceRuntimeStatus = InferenceRuntimeStatus()
 ) {
     val canChat: Boolean
@@ -114,6 +115,7 @@ class AppViewModel(
             gpuBackendEnabled = initialSettings.gpuBackendEnabled,
             npuBackendEnabled = initialSettings.npuBackendEnabled,
             gemmaMtpEnabled = initialSettings.gemmaMtpEnabled,
+            overlayEnabled = initialSettings.overlayEnabled,
             runtimeStatus = InferenceRuntimeStatus(
                 requested = runtimeConfigForSettings(initialSettings)
             )
@@ -546,6 +548,11 @@ class AppViewModel(
     fun setGemmaMtpEnabled(enabled: Boolean) {
         appSettingsRepository.setGemmaMtpEnabled(enabled)
         refreshSettingsState()
+    }
+
+    fun setOverlayEnabled(enabled: Boolean) {
+        appSettingsRepository.setOverlayEnabled(enabled)
+        mutableState.update { it.copy(overlayEnabled = enabled) }
     }
 
     override fun onCleared() {
