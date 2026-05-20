@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -62,6 +63,8 @@ fun KeyboardPanel(
     modifier: Modifier = Modifier
 ) {
     val showKeys = state is KeyboardPanelState.Idle || state is KeyboardPanelState.Loading
+    // Fixed heights so the IME window never expands to full screen
+    val panelHeight = if (showKeys) 110.dp else 320.dp
 
     AppTheme {
         Column(
@@ -69,11 +72,11 @@ fun KeyboardPanel(
                 .fillMaxWidth()
                 .background(AppBackground)
         ) {
-            // Panel zone
+            // Panel zone — fixed height prevents unbounded expansion in IME window
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .height(panelHeight)
             ) {
                 when (state) {
                     is KeyboardPanelState.Idle -> IdlePanel(
@@ -105,7 +108,7 @@ fun KeyboardPanel(
                 }
             }
 
-            // QWERTY keys zone — hidden during Generating/Done to give response more space
+            // QWERTY keys zone — hidden during Generating/Done/Error to give response more space
             if (showKeys) {
                 KeyboardKeys(
                     onChar = { char -> onInputChange(inputText + char) },
@@ -171,7 +174,7 @@ private fun IdlePanel(
                 onClick = onAsk,
                 enabled = inputText.isNotBlank(),
                 primary = true,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.widthIn(min = 64.dp)
             )
         }
     }
