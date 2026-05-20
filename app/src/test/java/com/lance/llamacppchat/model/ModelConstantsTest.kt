@@ -8,17 +8,17 @@ import org.junit.Test
 
 class ModelConstantsTest {
     @Test
-    fun defaultModelUrlMatchesUnslothQwen35GgufResolveUrl() {
+    fun defaultModelUrlMatchesBartowskiQwen25GgufResolveUrl() {
         assertEquals(
-            "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf",
+            "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
             ModelConstants.DEFAULT_MODEL_URL
         )
     }
 
     @Test
-    fun qwen35ModelRepoIsUnslothGgufRepo() {
+    fun defaultModelRepoIsBartowskiQwen25GgufRepo() {
         assertEquals(
-            "unsloth/Qwen3.5-0.8B-GGUF",
+            "bartowski/Qwen2.5-1.5B-Instruct-GGUF",
             ModelConstants.DEFAULT_MODEL_REPOSITORY
         )
     }
