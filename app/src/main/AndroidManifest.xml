@@ -34,7 +34,9 @@
             android:exported="false"
             android:theme="@style/Theme.Overlay"
             android:windowSoftInputMode="adjustResize"
-            android:launchMode="singleTask" />
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop" />
 
         <activity
             android:name=".ProcessTextActivity"

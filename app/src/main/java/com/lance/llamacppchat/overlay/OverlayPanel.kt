@@ -2,6 +2,8 @@ package com.lance.llamacppchat.overlay
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -68,11 +70,19 @@ fun OverlayPanel(
                     1.dp, AppBorder,
                     RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
                 )
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) {}  // absorb touches so they don't reach the scrim behind
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 10.dp)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { onDismiss() },
                 contentAlignment = Alignment.Center
             ) {
                 Box(
