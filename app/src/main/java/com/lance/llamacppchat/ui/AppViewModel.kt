@@ -140,13 +140,21 @@ class AppViewModel(
         if (savedPath != null) {
             viewModelScope.launch {
                 val file = File(savedPath)
-                if (file.exists()) {
-                    withContext(ioDispatcher) { embeddingEngine.load(file) }
-                        .onSuccess {
-                            mutableState.update { it.copy(isEmbeddingModelLoaded = true) }
-                            reIndexMemories()
-                        }
+                if (!file.exists()) {
+                    withContext(ioDispatcher) { appSettingsRepository.setEmbeddingModelPath(null) }
+                    mutableState.update { it.copy(embeddingModelPath = null) }
+                    return@launch
                 }
+                withContext(ioDispatcher) { embeddingEngine.load(file) }
+                    .onSuccess {
+                        mutableState.update { it.copy(isEmbeddingModelLoaded = true) }
+                        reIndexMemories()
+                    }
+                    .onFailure { error ->
+                        mutableState.update {
+                            it.copy(errorText = error.message ?: "Failed to restore embedding model")
+                        }
+                    }
             }
         }
     }
@@ -564,7 +572,11 @@ class AppViewModel(
         val encodedKey = memoryRepository.encodeKey(key)
         memoryRepository.deleteMemory(key)
         refreshMemoryState()
-        if (encodedKey != null) embeddingStore.deleteEmbedding(encodedKey)
+        if (encodedKey != null) {
+            viewModelScope.launch(ioDispatcher) {
+                embeddingStore.deleteEmbedding(encodedKey)
+            }
+        }
     }
 
     fun setStreamResponsesEnabled(enabled: Boolean) {
@@ -594,10 +606,12 @@ class AppViewModel(
 
     fun selectEmbeddingModel(file: File) {
         viewModelScope.launch {
-            embeddingStore.clearAll()
             withContext(ioDispatcher) { embeddingEngine.load(file) }
                 .onSuccess {
-                    appSettingsRepository.setEmbeddingModelPath(file.absolutePath)
+                    withContext(ioDispatcher) {
+                        appSettingsRepository.setEmbeddingModelPath(file.absolutePath)
+                        embeddingStore.clearAll()
+                    }
                     mutableState.update {
                         it.copy(
                             embeddingModelPath = file.absolutePath,
@@ -616,11 +630,13 @@ class AppViewModel(
     }
 
     fun removeEmbeddingModel() {
-        embeddingEngine.unload()
-        embeddingStore.clearAll()
-        appSettingsRepository.setEmbeddingModelPath(null)
-        mutableState.update {
-            it.copy(embeddingModelPath = null, isEmbeddingModelLoaded = false)
+        viewModelScope.launch(ioDispatcher) {
+            embeddingEngine.unload()
+            embeddingStore.clearAll()
+            appSettingsRepository.setEmbeddingModelPath(null)
+            mutableState.update {
+                it.copy(embeddingModelPath = null, isEmbeddingModelLoaded = false)
+            }
         }
     }
 
@@ -646,6 +662,7 @@ class AppViewModel(
             engine.cancelGeneration()
         }
         generationJob = null
+        embeddingEngine.unload()
         engine.release()
         super.onCleared()
     }
