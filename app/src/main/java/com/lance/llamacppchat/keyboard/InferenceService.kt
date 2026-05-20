@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.IBinder
 import com.lance.llamacppchat.IInferenceCallback
 import com.lance.llamacppchat.IInferenceService
-import com.lance.llamacppchat.MainActivity
 import com.lance.llamacppchat.inference.InferenceRuntimeConfig
 import com.lance.llamacppchat.inference.LlamaCppChatEngine
 import com.lance.llamacppchat.model.ModelRepository
@@ -54,12 +53,6 @@ class InferenceService : Service() {
                             callback.onError("No model installed. Open LlamaCpp Chat to download one.")
                             return@launch
                         }
-                        startActivity(
-                            Intent(this@InferenceService, MainActivity::class.java).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            }
-                        )
                         engine.load(modelFile, InferenceRuntimeConfig.defaultCpu)
                             .onFailure {
                                 callback.onError(it.message ?: "Failed to load model")
