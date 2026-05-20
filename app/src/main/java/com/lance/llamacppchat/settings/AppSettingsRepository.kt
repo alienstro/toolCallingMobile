@@ -8,7 +8,8 @@ data class AppSettings(
     val gpuBackendEnabled: Boolean = false,
     val npuBackendEnabled: Boolean = false,
     val gemmaMtpEnabled: Boolean = false,
-    val overlayEnabled: Boolean = false
+    val overlayEnabled: Boolean = false,
+    val embeddingModelPath: String? = null
 )
 
 class AppSettingsRepository(private val rootDir: File) {
@@ -29,7 +30,8 @@ class AppSettingsRepository(private val rootDir: File) {
             npuBackendEnabled = npuBackendEnabled,
             gemmaMtpEnabled = gpuBackendEnabled &&
                 properties.booleanValue(KEY_GEMMA_MTP_ENABLED, defaultValue = false),
-            overlayEnabled = properties.booleanValue(KEY_OVERLAY_ENABLED, defaultValue = false)
+            overlayEnabled = properties.booleanValue(KEY_OVERLAY_ENABLED, defaultValue = false),
+            embeddingModelPath = properties.getProperty(KEY_EMBEDDING_MODEL_PATH)
         )
     }
 
@@ -63,6 +65,10 @@ class AppSettingsRepository(private val rootDir: File) {
         save(load().copy(overlayEnabled = enabled))
     }
 
+    fun setEmbeddingModelPath(path: String?) {
+        save(load().copy(embeddingModelPath = path))
+    }
+
     fun setGemmaMtpEnabled(enabled: Boolean) {
         val currentSettings = load()
         save(
@@ -80,6 +86,11 @@ class AppSettingsRepository(private val rootDir: File) {
         properties.setProperty(KEY_NPU_BACKEND_ENABLED, settings.npuBackendEnabled.toString())
         properties.setProperty(KEY_GEMMA_MTP_ENABLED, settings.gemmaMtpEnabled.toString())
         properties.setProperty(KEY_OVERLAY_ENABLED, settings.overlayEnabled.toString())
+        if (settings.embeddingModelPath != null) {
+            properties.setProperty(KEY_EMBEDDING_MODEL_PATH, settings.embeddingModelPath)
+        } else {
+            properties.remove(KEY_EMBEDDING_MODEL_PATH)
+        }
         settingsFile.outputStream().use { output ->
             properties.store(output, null)
         }
@@ -88,11 +99,12 @@ class AppSettingsRepository(private val rootDir: File) {
     private fun Properties.booleanValue(key: String, defaultValue: Boolean): Boolean =
         getProperty(key)?.toBooleanStrictOrNull() ?: defaultValue
 
-    private companion object {
-        const val KEY_STREAM_RESPONSES_ENABLED = "streamResponsesEnabled"
-        const val KEY_GPU_BACKEND_ENABLED = "gpuBackendEnabled"
-        const val KEY_NPU_BACKEND_ENABLED = "npuBackendEnabled"
-        const val KEY_GEMMA_MTP_ENABLED = "gemmaMtpEnabled"
-        const val KEY_OVERLAY_ENABLED = "overlayEnabled"
+    companion object {
+        const val KEY_EMBEDDING_MODEL_PATH = "embeddingModelPath"
+        private const val KEY_STREAM_RESPONSES_ENABLED = "streamResponsesEnabled"
+        private const val KEY_GPU_BACKEND_ENABLED = "gpuBackendEnabled"
+        private const val KEY_NPU_BACKEND_ENABLED = "npuBackendEnabled"
+        private const val KEY_GEMMA_MTP_ENABLED = "gemmaMtpEnabled"
+        private const val KEY_OVERLAY_ENABLED = "overlayEnabled"
     }
 }

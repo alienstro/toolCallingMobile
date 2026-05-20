@@ -60,6 +60,7 @@ import com.lance.llamacppchat.ui.AppViewModel
 import com.lance.llamacppchat.ui.ChatScreen
 import com.lance.llamacppchat.ui.DiagnosticsScreen
 import com.lance.llamacppchat.inference.LlamaCppChatEngine
+import com.lance.llamacppchat.inference.LlamaCppEmbeddingEngine
 import com.lance.llamacppchat.ui.ModelManagerScreen
 import com.lance.llamacppchat.ui.SettingsScreen
 import com.lance.llamacppchat.ui.StatusPill
@@ -315,7 +316,8 @@ private fun rememberAppViewModel(): AppViewModel {
                 }
                 return AppViewModel(
                     repository = ModelRepository(context.filesDir),
-                    engine = LlamaCppChatEngine(context)
+                    engine = LlamaCppChatEngine(context),
+                    embeddingEngine = LlamaCppEmbeddingEngine(context)
                 ) as T
             }
         }

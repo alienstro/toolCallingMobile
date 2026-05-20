@@ -7,10 +7,13 @@ import androidx.lifecycle.viewModelScope
 import com.lance.llamacppchat.download.ModelDownloadClient
 import com.lance.llamacppchat.download.ModelDownloader
 import com.lance.llamacppchat.inference.ChatEngine
+import com.lance.llamacppchat.inference.EmbeddingEngine
 import com.lance.llamacppchat.inference.InferenceBackend
 import com.lance.llamacppchat.inference.InferenceRuntimeConfig
 import com.lance.llamacppchat.inference.InferenceRuntimeStatus
 import com.lance.llamacppchat.inference.UnavailableChatEngine
+import com.lance.llamacppchat.inference.UnavailableEmbeddingEngine
+import com.lance.llamacppchat.memory.EmbeddingStore
 import com.lance.llamacppchat.memory.MemoryItem
 import com.lance.llamacppchat.memory.MemoryRepository
 import com.lance.llamacppchat.model.ModelConstants
@@ -71,7 +74,10 @@ data class AppState(
     val npuBackendEnabled: Boolean = false,
     val gemmaMtpEnabled: Boolean = false,
     val overlayEnabled: Boolean = false,
-    val runtimeStatus: InferenceRuntimeStatus = InferenceRuntimeStatus()
+    val runtimeStatus: InferenceRuntimeStatus = InferenceRuntimeStatus(),
+    val embeddingModelPath: String? = null,
+    val isEmbeddingModelLoaded: Boolean = false,
+    val isReIndexing: Boolean = false,
 ) {
     val canChat: Boolean
         get() = activeModel != null && !isDownloading && !isLoadingModel && !isGenerating
@@ -92,6 +98,8 @@ class AppViewModel(
     private val appSettingsRepository: AppSettingsRepository = AppSettingsRepository(repository.rootDir),
     private val chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(repository.rootDir),
     private val memoryRepository: MemoryRepository = MemoryRepository(repository.rootDir),
+    private val embeddingEngine: EmbeddingEngine = UnavailableEmbeddingEngine,
+    private val embeddingStore: EmbeddingStore = EmbeddingStore(repository.rootDir),
     private val downloader: ModelDownloadClient = ModelDownloader(),
     private val engine: ChatEngine = UnavailableChatEngine,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -118,11 +126,30 @@ class AppViewModel(
             overlayEnabled = initialSettings.overlayEnabled,
             runtimeStatus = InferenceRuntimeStatus(
                 requested = runtimeConfigForSettings(initialSettings)
-            )
+            ),
+            embeddingModelPath = initialSettings.embeddingModelPath,
+            isEmbeddingModelLoaded = false,
+            isReIndexing = false,
         )
     )
     val state: StateFlow<AppState> = mutableState
     private var generationJob: Job? = null
+
+    init {
+        val savedPath = initialSettings.embeddingModelPath
+        if (savedPath != null) {
+            viewModelScope.launch {
+                val file = File(savedPath)
+                if (file.exists()) {
+                    withContext(ioDispatcher) { embeddingEngine.load(file) }
+                        .onSuccess {
+                            mutableState.update { it.copy(isEmbeddingModelLoaded = true) }
+                            reIndexMemories()
+                        }
+                }
+            }
+        }
+    }
 
     fun downloadModel(url: String) {
         var shouldStart = false
@@ -521,13 +548,23 @@ class AppViewModel(
     }
 
     fun upsertMemory(key: String, value: String) {
+        val encodedKey = memoryRepository.encodeKey(key)
         memoryRepository.upsertMemory(key, value)
         refreshMemoryState()
+        if (encodedKey != null && mutableState.value.isEmbeddingModelLoaded) {
+            viewModelScope.launch(ioDispatcher) {
+                embeddingEngine.embed(value).onSuccess { vector ->
+                    embeddingStore.storeEmbedding(encodedKey, vector)
+                }
+            }
+        }
     }
 
     fun deleteMemory(key: String) {
+        val encodedKey = memoryRepository.encodeKey(key)
         memoryRepository.deleteMemory(key)
         refreshMemoryState()
+        if (encodedKey != null) embeddingStore.deleteEmbedding(encodedKey)
     }
 
     fun setStreamResponsesEnabled(enabled: Boolean) {
@@ -555,6 +592,54 @@ class AppViewModel(
         mutableState.update { it.copy(overlayEnabled = enabled) }
     }
 
+    fun selectEmbeddingModel(file: File) {
+        viewModelScope.launch {
+            embeddingStore.clearAll()
+            withContext(ioDispatcher) { embeddingEngine.load(file) }
+                .onSuccess {
+                    appSettingsRepository.setEmbeddingModelPath(file.absolutePath)
+                    mutableState.update {
+                        it.copy(
+                            embeddingModelPath = file.absolutePath,
+                            isEmbeddingModelLoaded = true,
+                            errorText = null
+                        )
+                    }
+                    reIndexMemories()
+                }
+                .onFailure { error ->
+                    mutableState.update {
+                        it.copy(errorText = error.message ?: "Failed to load embedding model")
+                    }
+                }
+        }
+    }
+
+    fun removeEmbeddingModel() {
+        embeddingEngine.unload()
+        embeddingStore.clearAll()
+        appSettingsRepository.setEmbeddingModelPath(null)
+        mutableState.update {
+            it.copy(embeddingModelPath = null, isEmbeddingModelLoaded = false)
+        }
+    }
+
+    private fun reIndexMemories() {
+        viewModelScope.launch(ioDispatcher) {
+            mutableState.update { it.copy(isReIndexing = true) }
+            val storedKeys = embeddingStore.loadAll().keys
+            memoryRepository.loadMemories()
+                .filter { memoryRepository.encodeKey(it.key) !in storedKeys }
+                .forEach { memory ->
+                    val encodedKey = memoryRepository.encodeKey(memory.key) ?: return@forEach
+                    embeddingEngine.embed(memory.value).onSuccess { vector ->
+                        embeddingStore.storeEmbedding(encodedKey, vector)
+                    }
+                }
+            mutableState.update { it.copy(isReIndexing = false) }
+        }
+    }
+
     override fun onCleared() {
         generationJob?.cancel()
         if (mutableState.value.isGenerating) {
@@ -576,19 +661,30 @@ class AppViewModel(
     private fun loadingAssistantMessage(): ChatMessage =
         ChatMessage("assistant", "Processing...", isLoading = true)
 
-    private fun promptForModel(userPrompt: String, hasImage: Boolean = false): String {
+    private suspend fun promptForModel(userPrompt: String, hasImage: Boolean = false): String {
         val formatter = promptFormatterRepository.loadState().activeFormatter
         val formatterBody = formatter?.body.orEmpty().trim()
-        val prompt = if (userPrompt.isBlank() && hasImage) {
-            "Describe this image."
-        } else {
-            userPrompt
-        }
-        val memoryBlock = memoryRepository.selectForPrompt(prompt)
-            .takeIf { it.isNotEmpty() }
-            ?.joinToString(separator = "\n", prefix = "Memory:\n") { memory ->
-                "- ${memory.key}: ${memory.value}"
+        val prompt = if (userPrompt.isBlank() && hasImage) "Describe this image." else userPrompt
+
+        val selectedMemories: List<MemoryItem> = withContext(ioDispatcher) {
+            if (mutableState.value.isEmbeddingModelLoaded) {
+                embeddingEngine.embed(prompt).getOrNull()?.let { queryVector ->
+                    val topKeys = embeddingStore.findTopK(queryVector, MemoryRepository.PROMPT_MEMORY_LIMIT)
+                    val pinnedMemories = memoryRepository.loadMemories()
+                        .filter { it.key in MemoryRepository.PINNED_KEYS }
+                        .sortedBy { MemoryRepository.PINNED_KEYS.indexOf(it.key) }
+                    val semanticMemories = memoryRepository.memoriesByEncodedKeys(topKeys)
+                        .filterNot { it.key in MemoryRepository.PINNED_KEYS }
+                    (pinnedMemories + semanticMemories).take(MemoryRepository.PROMPT_MEMORY_LIMIT)
+                } ?: memoryRepository.selectForPrompt(prompt)
+            } else {
+                memoryRepository.selectForPrompt(prompt)
             }
+        }
+
+        val memoryBlock = selectedMemories
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(separator = "\n", prefix = "Memory:\n") { "- ${it.key}: ${it.value}" }
 
         return listOf(formatterBody, memoryBlock, "User message:\n$prompt")
             .filterNot { it.isNullOrBlank() }
