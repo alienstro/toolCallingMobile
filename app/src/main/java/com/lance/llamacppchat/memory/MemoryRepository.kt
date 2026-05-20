@@ -43,7 +43,6 @@ class MemoryRepository(private val rootDir: File) {
                 loadMemories().filterNot { it.key == cleanedKey }
             )
             .sortedByDescending { it.updatedAtEpochMillis }
-            .take(MAX_MEMORIES)
         saveMemories(next)
     }
 
@@ -127,6 +126,14 @@ class MemoryRepository(private val rootDir: File) {
         return listOf(MemoryItem("user.$subject", value, now))
     }
 
+    fun encodeKey(rawKey: String): String? = cleanKey(rawKey)?.let { encode(it) }
+
+    fun memoriesByEncodedKeys(encodedKeys: List<String>): List<MemoryItem> {
+        if (encodedKeys.isEmpty()) return emptyList()
+        val allByEncodedKey = loadMemories().associateBy { encode(it.key) }
+        return encodedKeys.mapNotNull { allByEncodedKey[it] }
+    }
+
     private fun saveMemories(memories: List<MemoryItem>) {
         settingsDir.mkdirs()
         val properties = Properties()
@@ -163,11 +170,10 @@ class MemoryRepository(private val rootDir: File) {
     private fun decode(value: String?): String? =
         value?.let { encoded -> String(Base64.getUrlDecoder().decode(encoded), Charsets.UTF_8) }
 
-    private companion object {
+    companion object {
         const val KEY_MEMORY_KEYS = "memoryKeys"
         const val MAX_KEY_LENGTH = 48
         const val MAX_VALUE_LENGTH = 160
-        const val MAX_MEMORIES = 40
         const val PROMPT_MEMORY_LIMIT = 6
         val PINNED_KEYS = listOf("user.name", "user.prefers")
         val NAME_PATTERN = Regex(

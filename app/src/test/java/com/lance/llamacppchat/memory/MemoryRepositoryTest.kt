@@ -1,6 +1,7 @@
 package com.lance.llamacppchat.memory
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -275,5 +276,47 @@ class MemoryRepositoryTest {
         repository.captureExplicitMemories("what is my favorite color?", now = 1000L)
 
         assertTrue(repository.loadMemories().isEmpty())
+    }
+
+    @Test
+    fun memoriesAreNotCappedAt40() {
+        val repository = MemoryRepository(temporaryFolder.root)
+        repeat(50) { i ->
+            repository.upsertMemory("key.$i", "value $i", now = i.toLong())
+        }
+        assertEquals(50, repository.loadMemories().size)
+    }
+
+    @Test
+    fun encodeKeyReturnsNullForBlankKey() {
+        val repository = MemoryRepository(temporaryFolder.root)
+        assertNull(repository.encodeKey("   "))
+    }
+
+    @Test
+    fun encodeKeyReturnsConsistentResultForSameInput() {
+        val repository = MemoryRepository(temporaryFolder.root)
+        val key1 = repository.encodeKey("user.name")
+        val key2 = repository.encodeKey("user.name")
+        assertEquals(key1, key2)
+    }
+
+    @Test
+    fun memoriesByEncodedKeysReturnsMatchingItems() {
+        val repository = MemoryRepository(temporaryFolder.root)
+        repository.upsertMemory("user.name", "Lance", now = 1000L)
+        repository.upsertMemory("user.likes", "coffee", now = 2000L)
+        val encodedKey = repository.encodeKey("user.name")!!
+        val result = repository.memoriesByEncodedKeys(listOf(encodedKey))
+        assertEquals(1, result.size)
+        assertEquals("user.name", result[0].key)
+    }
+
+    @Test
+    fun memoriesByEncodedKeysReturnsEmptyForUnknownKeys() {
+        val repository = MemoryRepository(temporaryFolder.root)
+        repository.upsertMemory("user.name", "Lance", now = 1000L)
+        val result = repository.memoriesByEncodedKeys(listOf("nonexistent-encoded-key"))
+        assertTrue(result.isEmpty())
     }
 }
