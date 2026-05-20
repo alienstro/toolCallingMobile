@@ -11,6 +11,8 @@ class ModelRepository(val rootDir: File) {
         return modelDir
     }
 
+    fun embeddingModelDirectory(): File = File(rootDir, "embedding-models").also { it.mkdirs() }
+
     fun saveMetadata(metadata: ModelMetadata) {
         modelDirectory()
         metadataFile.writeText(

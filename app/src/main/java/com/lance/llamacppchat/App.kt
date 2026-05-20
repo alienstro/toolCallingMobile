@@ -195,7 +195,11 @@ fun LlamaCppChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
                                         appViewModel.setOverlayEnabled(false)
                                         context.stopService(Intent(context, OverlayService::class.java))
                                     }
-                                }
+                                },
+                                onSelectEmbeddingModel = { uri ->
+                                    appViewModel.importEmbeddingModelFromUri(context, uri)
+                                },
+                                onRemoveEmbeddingModel = appViewModel::removeEmbeddingModel
                             )
                         }
                     }

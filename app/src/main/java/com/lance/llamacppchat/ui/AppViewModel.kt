@@ -640,6 +640,29 @@ class AppViewModel(
         }
     }
 
+    fun importEmbeddingModelFromUri(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(ioDispatcher) {
+                    val destination = File(
+                        repository.embeddingModelDirectory(),
+                        "embedding-${System.currentTimeMillis()}.gguf"
+                    )
+                    context.contentResolver.openInputStream(uri).use { input ->
+                        requireNotNull(input) { "Could not open selected file." }
+                        destination.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    require(destination.length() > 0L) { "Selected file was empty." }
+                    destination
+                }
+            }.onSuccess { file ->
+                selectEmbeddingModel(file)
+            }.onFailure { error ->
+                mutableState.update { it.copy(errorText = error.message ?: "Import failed") }
+            }
+        }
+    }
+
     private fun reIndexMemories() {
         viewModelScope.launch(ioDispatcher) {
             mutableState.update { it.copy(isReIndexing = true) }

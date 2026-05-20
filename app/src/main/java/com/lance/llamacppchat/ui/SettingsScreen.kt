@@ -1,5 +1,8 @@
 package com.lance.llamacppchat.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -44,6 +49,8 @@ fun SettingsScreen(
     onNpuBackendChanged: (Boolean) -> Unit,
     onGemmaMtpChanged: (Boolean) -> Unit,
     onOverlayChanged: (Boolean) -> Unit,
+    onSelectEmbeddingModel: (Uri) -> Unit,
+    onRemoveEmbeddingModel: () -> Unit,
 ) {
     var editingId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -51,6 +58,11 @@ fun SettingsScreen(
     var memoryKey by rememberSaveable { mutableStateOf("") }
     var memoryValue by rememberSaveable { mutableStateOf("") }
     var bannerMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    val embeddingModelPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) onSelectEmbeddingModel(uri)
+    }
 
     LaunchedEffect(bannerMessage) {
         if (bannerMessage != null) {
@@ -222,6 +234,58 @@ fun SettingsScreen(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
+        }
+        item {
+            Text(
+                text = "Memory Search",
+                color = AppText,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
+            )
+        }
+        item {
+            val modelName = state.embeddingModelPath
+                ?.let { java.io.File(it).name }
+                ?: "Not configured"
+            val statusColor = if (state.isEmbeddingModelLoaded) AppAccent else AppMuted
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, AppBorder, RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Embedding model: $modelName",
+                    color = statusColor,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (state.isReIndexing) {
+                    Text(
+                        text = "Indexing memories...",
+                        color = AppMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(
+                        onClick = { embeddingModelPickerLauncher.launch("*/*") },
+                        label = { Text(if (state.embeddingModelPath == null) "Select model" else "Change model") }
+                    )
+                    if (state.embeddingModelPath != null) {
+                        AssistChip(
+                            onClick = onRemoveEmbeddingModel,
+                            label = { Text("Remove") }
+                        )
+                    }
+                }
+                Text(
+                    text = "Recommended: nomic-embed-text-v1.5 GGUF (~90 MB)",
+                    color = AppFaint,
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
         }
     }
