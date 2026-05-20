@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lance.llamacppchat.prompt.PromptFormatterRepository
@@ -281,10 +283,14 @@ fun SettingsScreen(
                         )
                     }
                 }
+                val uriHandler = LocalUriHandler.current
                 Text(
                     text = "Recommended: nomic-embed-text-v1.5 GGUF (~90 MB)",
-                    color = AppFaint,
-                    style = MaterialTheme.typography.labelSmall
+                    color = AppAccent,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.alpha(0.85f).clickable {
+                        uriHandler.openUri("https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF")
+                    }
                 )
             }
         }
