@@ -62,6 +62,39 @@ class GoogleCalendarToolTest {
     }
 
     @Test
+    fun listEventRangeReturnsFormattedEventsAcrossDates() = runTest {
+        val client = FakeGoogleCalendarClient(
+            signedIn = true,
+            listRangeResult = Result.success(
+                listOf(
+                    CalendarEvent("may-1", "Workout", "2026-05-22T09:00:00", "2026-05-22T10:00:00"),
+                    CalendarEvent("may-2", "Dentist", "2026-05-30T14:00:00", "2026-05-30T15:00:00")
+                )
+            )
+        )
+        val tool = ListCalendarEventRangeTool(client)
+
+        val result = tool.execute(mapOf("start_date" to "2026-05-01", "end_date" to "2026-06-01"))
+
+        assertFalse(result.isError)
+        assertTrue(result.content.contains("Events from 2026-05-01 to 2026-06-01"))
+        assertTrue(result.content.contains("Workout"))
+        assertTrue(result.content.contains("Dentist"))
+        assertEquals("2026-05-01", client.lastRangeStartDate)
+        assertEquals("2026-06-01", client.lastRangeEndDate)
+    }
+
+    @Test
+    fun listEventRangeReturnsNeedsSignInWhenNotSignedIn() = runTest {
+        val tool = ListCalendarEventRangeTool(FakeGoogleCalendarClient(signedIn = false))
+
+        val result = tool.execute(mapOf("start_date" to "2026-05-01", "end_date" to "2026-06-01"))
+
+        assertTrue(result.isError)
+        assertEquals(NEEDS_SIGN_IN_SENTINEL, result.content)
+    }
+
+    @Test
     fun createEventReturnsConfirmationContainingTitle() = runTest {
         val client = FakeGoogleCalendarClient(
             signedIn = true,
@@ -229,11 +262,12 @@ class GoogleCalendarToolTest {
     }
 
     @Test
-    fun googleCalendarToolsReturnsFourTools() {
+    fun googleCalendarToolsReturnsFiveTools() {
         val tools = googleCalendarTools(FakeGoogleCalendarClient(signedIn = true))
 
-        assertEquals(4, tools.size)
+        assertEquals(5, tools.size)
         assertTrue(tools.any { it.definition.name == "list_events" })
+        assertTrue(tools.any { it.definition.name == "list_events_range" })
         assertTrue(tools.any { it.definition.name == "create_event" })
         assertTrue(tools.any { it.definition.name == "delete_event" })
         assertTrue(tools.any { it.definition.name == "update_event" })
@@ -243,11 +277,14 @@ class GoogleCalendarToolTest {
 internal class FakeGoogleCalendarClient(
     private val signedIn: Boolean,
     private val listResult: Result<List<CalendarEvent>> = Result.success(emptyList()),
+    private val listRangeResult: Result<List<CalendarEvent>> = Result.success(emptyList()),
     private val createResult: Result<CalendarEvent> = Result.success(CalendarEvent("id", "Event", "", "")),
     private val deleteResult: Result<Unit> = Result.success(Unit),
     private val updateResult: Result<CalendarEvent> = Result.success(CalendarEvent("id", "Event", "", ""))
 ) : GoogleCalendarClient {
     var lastDurationMinutes: Int = -1
+    var lastRangeStartDate: String? = null
+    var lastRangeEndDate: String? = null
     var lastDeletedEventId: String? = null
     var lastUpdatedEventId: String? = null
     var lastUpdateTitle: String? = null
@@ -260,6 +297,12 @@ internal class FakeGoogleCalendarClient(
     override fun handleSignInResult(account: GoogleSignInAccount?) = Unit
 
     override suspend fun listEvents(date: String): Result<List<CalendarEvent>> = listResult
+
+    override suspend fun listEvents(startDate: String, endDate: String): Result<List<CalendarEvent>> {
+        lastRangeStartDate = startDate
+        lastRangeEndDate = endDate
+        return listRangeResult
+    }
 
     override suspend fun createEvent(
         title: String,

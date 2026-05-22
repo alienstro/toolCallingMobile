@@ -6,6 +6,7 @@ interface GoogleCalendarClient {
     fun isSignedIn(): Boolean
     fun handleSignInResult(account: GoogleSignInAccount?)
     suspend fun listEvents(date: String): Result<List<CalendarEvent>>
+    suspend fun listEvents(startDate: String, endDate: String): Result<List<CalendarEvent>>
     suspend fun createEvent(
         title: String,
         date: String,

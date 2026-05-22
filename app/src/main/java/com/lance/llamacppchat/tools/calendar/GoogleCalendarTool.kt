@@ -8,7 +8,7 @@ import com.lance.llamacppchat.tools.ToolResult
 class ListCalendarEventsTool(private val client: GoogleCalendarClient) : Tool {
     override val definition = ToolDefinition(
         name = "list_events",
-        description = "List Google Calendar events for a given date",
+        description = "List Google Calendar events for one exact date. For a month, week, or date range use list_events_range instead",
         parametersSchema = "date: YYYY-MM-DD"
     )
 
@@ -29,6 +29,36 @@ class ListCalendarEventsTool(private val client: GoogleCalendarClient) : Tool {
                 ToolResult(definition.name, "Events for $date:\n$body")
             },
             onFailure = { ToolResult(definition.name, "list_events error: ${it.message}", isError = true) }
+        )
+    }
+}
+
+class ListCalendarEventRangeTool(private val client: GoogleCalendarClient) : Tool {
+    override val definition = ToolDefinition(
+        name = "list_events_range",
+        description = "List Google Calendar events in a date range, such as this month or this week",
+        parametersSchema = "start_date: YYYY-MM-DD inclusive, end_date: YYYY-MM-DD exclusive"
+    )
+
+    override suspend fun execute(args: Map<String, Any>): ToolResult {
+        if (!client.isSignedIn()) return ToolResult(definition.name, NEEDS_SIGN_IN_SENTINEL, isError = true)
+        val startDate = args["start_date"] as? String
+            ?: return ToolResult(definition.name, "Missing 'start_date' parameter (YYYY-MM-DD)", isError = true)
+        val endDate = args["end_date"] as? String
+            ?: return ToolResult(definition.name, "Missing 'end_date' parameter (YYYY-MM-DD)", isError = true)
+
+        return client.listEvents(startDate, endDate).fold(
+            onSuccess = { events ->
+                val body = if (events.isEmpty()) {
+                    "No events found from $startDate to $endDate."
+                } else {
+                    events.joinToString("\n") { event ->
+                        "- ${event.title}: ${event.start} to ${event.end} (id: ${event.id})"
+                    }
+                }
+                ToolResult(definition.name, "Events from $startDate to $endDate:\n$body")
+            },
+            onFailure = { ToolResult(definition.name, "list_events_range error: ${it.message}", isError = true) }
         )
     }
 }
@@ -131,6 +161,7 @@ class UpdateCalendarEventTool(private val client: GoogleCalendarClient) : Tool {
 fun googleCalendarTools(client: GoogleCalendarClient): List<Tool> =
     listOf(
         ListCalendarEventsTool(client),
+        ListCalendarEventRangeTool(client),
         CreateCalendarEventTool(client),
         DeleteCalendarEventTool(client),
         UpdateCalendarEventTool(client)

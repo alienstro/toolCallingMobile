@@ -46,15 +46,31 @@ class GoogleCalendarClientImpl(private val context: Context) : GoogleCalendarCli
     }
 
     override suspend fun listEvents(date: String): Result<List<CalendarEvent>> = runCatching {
-        val token = accessToken()
         val zone = ZoneId.systemDefault()
         val localDate = LocalDate.parse(date)
+        fetchEvents(localDate, localDate.plusDays(1), zone)
+    }
+
+    override suspend fun listEvents(startDate: String, endDate: String): Result<List<CalendarEvent>> = runCatching {
+        val zone = ZoneId.systemDefault()
+        fetchEvents(LocalDate.parse(startDate), LocalDate.parse(endDate), zone)
+    }
+
+    private suspend fun fetchEvents(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        zone: ZoneId
+    ): List<CalendarEvent> {
+        val token = accessToken()
         val fmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME
-        val timeMin = URLEncoder.encode(localDate.atStartOfDay(zone).format(fmt), "UTF-8")
-        val timeMax = URLEncoder.encode(localDate.plusDays(1).atStartOfDay(zone).format(fmt), "UTF-8")
+        val timeMin = URLEncoder.encode(startDate.atStartOfDay(zone).format(fmt), "UTF-8")
+        val timeMax = URLEncoder.encode(endDate.atStartOfDay(zone).format(fmt), "UTF-8")
 
         val request = Request.Builder()
-            .url("https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=$timeMin&timeMax=$timeMax&singleEvents=true&orderBy=startTime")
+            .url(
+                "https://www.googleapis.com/calendar/v3/calendars/primary/events" +
+                    "?timeMin=$timeMin&timeMax=$timeMax&singleEvents=true&orderBy=startTime"
+            )
             .addHeader("Authorization", "Bearer $token")
             .build()
 
@@ -66,8 +82,8 @@ class GoogleCalendarClientImpl(private val context: Context) : GoogleCalendarCli
             }
         }
 
-        val items = JSONObject(body).optJSONArray("items") ?: return@runCatching emptyList()
-        (0 until items.length()).map { index ->
+        val items = JSONObject(body).optJSONArray("items") ?: return emptyList()
+        return (0 until items.length()).map { index ->
             val item = items.getJSONObject(index)
             CalendarEvent(
                 id = item.optString("id"),
