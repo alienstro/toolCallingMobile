@@ -54,6 +54,15 @@ class ToolCallParserTest {
     }
 
     @Test
+    fun parsesPlainJsonToolCallWithUnquotedArgKey() {
+        val input = "{\"tool\":\"list_events\",\"args\":{date:\"2026-05-01\"}}"
+
+        val result = ToolCallParser.parse(input)
+
+        assertEquals(ToolCall("list_events", mapOf("date" to "2026-05-01")), result)
+    }
+
+    @Test
     fun returnsNullWhenNoJsonBlock() {
         assertNull(ToolCallParser.parse("Sure, I can help with that!"))
     }

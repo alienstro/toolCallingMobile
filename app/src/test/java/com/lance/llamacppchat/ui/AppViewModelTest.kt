@@ -1156,6 +1156,48 @@ class AppViewModelTest {
     }
 
     @Test
+    fun sendMessageUsesRangeToolWhenMonthPromptProducesSingleDayCalendarToolCall() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val singleDayTool = FakeToolForViewModel(
+            "list_events",
+            ToolResult("list_events", "Events for one day")
+        )
+        val rangeTool = FakeToolForViewModel(
+            "list_events_range",
+            ToolResult("list_events_range", "Events from 2026-05-01 to 2026-06-01:\n- Workout")
+        )
+        val engine = FakeChatEngine(
+            responses = listOf(
+                "{\"tool\":\"list_events\",\"args\":{date:\"2026-05-01\"}}",
+                "You have Workout this month."
+            )
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(singleDayTool, rangeTool))
+        )
+
+        viewModel.sendMessage("give me my sched for this month")
+        advanceUntilIdle()
+
+        assertEquals(0, singleDayTool.executeCount)
+        assertEquals(1, rangeTool.executeCount)
+        assertEquals(
+            mapOf("start_date" to "2026-05-01", "end_date" to "2026-06-01"),
+            rangeTool.lastArgs
+        )
+        assertEquals("You have Workout this month.", viewModel.state.value.messages.last().content)
+    }
+
+    @Test
     fun sendMessageReportsToolExecutionCrashAsAssistantError() = runTest(mainDispatcherRule.testDispatcher) {
         val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
         val repository = ModelRepository(temporaryFolder.root).also {
@@ -1580,9 +1622,11 @@ private class FakeToolForViewModel(
 ) : Tool {
     override val definition = ToolDefinition(name = name, description = "fake", parametersSchema = "none")
     var executeCount = 0
+    var lastArgs: Map<String, Any>? = null
 
     override suspend fun execute(args: Map<String, Any>): ToolResult {
         executeCount += 1
+        lastArgs = args
         return result
     }
 }

@@ -37,6 +37,7 @@ import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -492,6 +493,7 @@ class AppViewModel(
                         }
 
                         val toolCall = ToolCallParser.parse(finalResponse)
+                            ?.let { normalizeCalendarToolCall(cleanedPrompt, it) }
                         if (toolCall == null || toolExecutions >= MAX_TOOL_HOPS) {
                             val displayResponse =
                                 if (toolCall != null && toolExecutions >= MAX_TOOL_HOPS) {
@@ -871,6 +873,29 @@ class AppViewModel(
                     isError = true
                 )
             }
+
+    private fun normalizeCalendarToolCall(userPrompt: String, toolCall: ToolCall): ToolCall {
+        if (toolCall.tool != "list_events" || !userPrompt.requestsCalendarMonth()) {
+            return toolCall
+        }
+        val date = (toolCall.args["date"] as? String)
+            ?.let { rawDate -> runCatching { LocalDate.parse(rawDate) }.getOrNull() }
+            ?: return toolCall
+        val start = date.withDayOfMonth(1)
+        val end = start.plusMonths(1)
+        return ToolCall(
+            tool = "list_events_range",
+            args = mapOf(
+                "start_date" to start.toString(),
+                "end_date" to end.toString()
+            )
+        )
+    }
+
+    private fun String.requestsCalendarMonth(): Boolean {
+        val prompt = lowercase()
+        return "month" in prompt && ("calendar" in prompt || "sched" in prompt || "schedule" in prompt)
+    }
 
     private fun mergeStreamChunk(currentText: String, chunk: String): String =
         if (chunk.startsWith(currentText)) {

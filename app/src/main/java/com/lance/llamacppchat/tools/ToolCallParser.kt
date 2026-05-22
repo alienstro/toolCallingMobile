@@ -37,7 +37,7 @@ private class JsonObjectParser(private val input: String) {
         }
         while (true) {
             skipWhitespace()
-            val key = parseString()
+            val key = parseKey()
             skipWhitespace()
             expect(':')
             skipWhitespace()
@@ -52,6 +52,22 @@ private class JsonObjectParser(private val input: String) {
                 else -> error("Expected ',' or '}'")
             }
         }
+    }
+
+    private fun parseKey(): String =
+        if (peek() == '"') {
+            parseString()
+        } else {
+            parseBareKey()
+        }
+
+    private fun parseBareKey(): String {
+        val start = index
+        while (peekOrNull()?.let { it.isLetterOrDigit() || it == '_' || it == '-' } == true) {
+            index++
+        }
+        if (start == index) error("Expected object key")
+        return input.substring(start, index)
     }
 
     private fun parseValue(): Any? {
