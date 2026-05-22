@@ -36,6 +36,24 @@ class ToolCallParserTest {
     }
 
     @Test
+    fun parsesPlainJsonToolCall() {
+        val input = "{\"tool\":\"list_events_range\",\"args\":{\"start_date\":\"2026-05-01\",\"end_date\":\"2026-06-01\"}}"
+
+        val result = ToolCallParser.parse(input)
+
+        assertEquals(
+            ToolCall(
+                "list_events_range",
+                mapOf(
+                    "start_date" to "2026-05-01",
+                    "end_date" to "2026-06-01"
+                )
+            ),
+            result
+        )
+    }
+
+    @Test
     fun returnsNullWhenNoJsonBlock() {
         assertNull(ToolCallParser.parse("Sure, I can help with that!"))
     }

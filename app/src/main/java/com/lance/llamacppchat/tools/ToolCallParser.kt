@@ -4,7 +4,9 @@ object ToolCallParser {
     private val codeBlockRegex = Regex("```json\\s*([\\s\\S]*?)```")
 
     fun parse(llmOutput: String): ToolCall? {
+        val trimmedOutput = llmOutput.trim()
         val jsonString = codeBlockRegex.find(llmOutput)?.groupValues?.get(1)?.trim()
+            ?: trimmedOutput.takeIf { it.startsWith("{") && it.endsWith("}") }
             ?: return null
         return runCatching {
             val obj = JsonObjectParser(jsonString).parseObject()
