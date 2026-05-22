@@ -12,6 +12,14 @@ interface GoogleCalendarClient {
         time: String,
         durationMinutes: Int
     ): Result<CalendarEvent>
+    suspend fun deleteEvent(eventId: String): Result<Unit>
+    suspend fun updateEvent(
+        eventId: String,
+        title: String?,
+        date: String?,
+        time: String?,
+        durationMinutes: Int?
+    ): Result<CalendarEvent>
 }
 
 data class CalendarEvent(
