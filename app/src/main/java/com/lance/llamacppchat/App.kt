@@ -24,9 +24,15 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.core.content.FileProvider
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import com.lance.llamacppchat.overlay.OverlayService
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +67,9 @@ import com.lance.llamacppchat.ui.ChatScreen
 import com.lance.llamacppchat.ui.DiagnosticsScreen
 import com.lance.llamacppchat.inference.LlamaCppChatEngine
 import com.lance.llamacppchat.inference.LlamaCppEmbeddingEngine
+import com.lance.llamacppchat.tools.ToolRegistry
+import com.lance.llamacppchat.tools.calendar.GoogleCalendarClientImpl
+import com.lance.llamacppchat.tools.calendar.googleCalendarTools
 import com.lance.llamacppchat.ui.ModelManagerScreen
 import com.lance.llamacppchat.ui.SettingsScreen
 import com.lance.llamacppchat.ui.StatusPill
@@ -68,7 +77,8 @@ import com.lance.llamacppchat.ui.chromeRuntimeStatus
 
 @Composable
 fun LlamaCppChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
-    val context = LocalContext.current.applicationContext
+    val localContext = LocalContext.current
+    val context = localContext.applicationContext
     val state by appViewModel.state.collectAsState()
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -76,6 +86,38 @@ fun LlamaCppChatApp(appViewModel: AppViewModel = rememberAppViewModel()) {
         if (Settings.canDrawOverlays(context)) {
             appViewModel.setOverlayEnabled(true)
             context.startForegroundService(Intent(context, OverlayService::class.java))
+        }
+    }
+    val googleSignInClient = remember {
+        val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope("https://www.googleapis.com/auth/calendar"))
+            .build()
+        GoogleSignIn.getClient(localContext, signInOptions)
+    }
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        val accountResult = runCatching {
+            task.getResult(ApiException::class.java)
+        }.recoverCatching { error ->
+            GoogleSignIn.getLastSignedInAccount(localContext)
+                ?: throw error
+        }
+        accountResult.fold(
+            onSuccess = appViewModel::handleGoogleSignInResult,
+            onFailure = { error ->
+                val detail = (error as? ApiException)?.statusCode?.let { "status $it" }
+                    ?: error.message
+                    ?: "unknown error"
+                appViewModel.handleGoogleSignInFailure("Google sign-in failed: $detail")
+            }
+        )
+    }
+    LaunchedEffect(appViewModel, googleSignInClient) {
+        appViewModel.signInRequest.collect {
+            googleSignInLauncher.launch(googleSignInClient.signInIntent)
         }
     }
     val navController = rememberNavController()
@@ -318,10 +360,13 @@ private fun rememberAppViewModel(): AppViewModel {
                 require(modelClass.isAssignableFrom(AppViewModel::class.java)) {
                     "Unknown ViewModel class ${modelClass.name}"
                 }
+                val calendarClient = GoogleCalendarClientImpl(context)
                 return AppViewModel(
                     repository = ModelRepository(context.filesDir),
                     engine = LlamaCppChatEngine(context),
-                    embeddingEngine = LlamaCppEmbeddingEngine(context)
+                    embeddingEngine = LlamaCppEmbeddingEngine(context),
+                    toolRegistry = ToolRegistry(googleCalendarTools(calendarClient)),
+                    googleCalendarClient = calendarClient
                 ) as T
             }
         }

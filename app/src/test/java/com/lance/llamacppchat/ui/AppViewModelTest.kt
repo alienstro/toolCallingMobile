@@ -11,6 +11,10 @@ import com.lance.llamacppchat.model.ModelMetadata
 import com.lance.llamacppchat.model.ModelRepository
 import com.lance.llamacppchat.prompt.PromptFormatterRepository
 import com.lance.llamacppchat.settings.AppSettingsRepository
+import com.lance.llamacppchat.tools.Tool
+import com.lance.llamacppchat.tools.ToolDefinition
+import com.lance.llamacppchat.tools.ToolRegistry
+import com.lance.llamacppchat.tools.ToolResult
 import com.lance.llamacppchat.ui.chat.ChatHistoryRepository
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -1117,6 +1121,158 @@ class AppViewModelTest {
     }
 
     @Test
+    fun sendMessageExecutesToolCallAndGeneratesFinalResponse() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val fakeTool = FakeToolForViewModel(
+            "list_events",
+            ToolResult("list_events", "Events for 2026-05-22:\n- Standup: 10:00 to 10:30")
+        )
+        val engine = FakeChatEngine(
+            responses = listOf(
+                "```json\n{\"tool\":\"list_events\",\"args\":{\"date\":\"2026-05-22\"}}\n```",
+                "You have a Standup at 10 AM."
+            )
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(fakeTool))
+        )
+
+        viewModel.sendMessage("What's on my calendar today?")
+        advanceUntilIdle()
+
+        assertEquals("You have a Standup at 10 AM.", viewModel.state.value.messages.last().content)
+        assertFalse(viewModel.state.value.isGenerating)
+        assertFalse(viewModel.state.value.isToolExecuting)
+        assertEquals(1, fakeTool.executeCount)
+    }
+
+    @Test
+    fun sendMessageReportsToolExecutionCrashAsAssistantError() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val throwingTool = ThrowingToolForViewModel(
+            name = "create_calendar_event",
+            error = IllegalStateException("Calendar API unavailable")
+        )
+        val engine = FakeChatEngine(
+            responses = listOf(
+                "```json\n{\"tool\":\"create_calendar_event\",\"args\":{\"title\":\"workout\",\"start\":\"2026-05-23T21:00:00\"}}\n```"
+            )
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(throwingTool))
+        )
+
+        viewModel.sendMessage("create me a schedule tomorrow 9pm, workout as the title")
+        advanceUntilIdle()
+
+        assertEquals(
+            "Tool 'create_calendar_event' failed: Calendar API unavailable",
+            viewModel.state.value.messages.last().content
+        )
+        assertFalse(viewModel.state.value.isGenerating)
+        assertFalse(viewModel.state.value.isToolExecuting)
+        assertEquals(1, throwingTool.executeCount)
+    }
+
+    @Test
+    fun sendMessageWithNoToolCallSkipsToolLoop() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val fakeTool = FakeToolForViewModel("list_events", ToolResult("list_events", "irrelevant"))
+        val engine = FakeChatEngine(responses = listOf("Sure, here is the answer."))
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(fakeTool))
+        )
+
+        viewModel.sendMessage("Hello")
+        advanceUntilIdle()
+
+        assertEquals("Sure, here is the answer.", viewModel.state.value.messages.last().content)
+        assertEquals(0, fakeTool.executeCount)
+    }
+
+    @Test
+    fun sendMessageReplacesBlankModelResponseWithFallbackMessage() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = FakeChatEngine(response = "")
+        )
+
+        viewModel.sendMessage("try it again")
+        advanceUntilIdle()
+
+        assertEquals(
+            "I didn't receive a usable response from the model. Please try again.",
+            viewModel.state.value.messages.last().content
+        )
+        assertFalse(viewModel.state.value.isGenerating)
+    }
+
+    @Test
+    fun sendMessageStopsAfterMaxToolHopsWithErrorMessage() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val fakeTool = FakeToolForViewModel("list_events", ToolResult("list_events", "some result"))
+        val engine = FakeChatEngine(
+            responses = List(10) {
+                "```json\n{\"tool\":\"list_events\",\"args\":{\"date\":\"2026-05-22\"}}\n```"
+            }
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(fakeTool))
+        )
+
+        viewModel.sendMessage("loop forever")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.messages.last().content.contains("Try rephrasing"))
+        assertFalse(viewModel.state.value.isGenerating)
+        assertEquals(3, fakeTool.executeCount)
+    }
+
+    @Test
     fun setStreamResponsesEnabledPersistsAndUpdatesState() {
         val settingsRepository = AppSettingsRepository(temporaryFolder.root)
         val viewModel = testViewModel(
@@ -1282,6 +1438,7 @@ class AppViewModelTest {
         chatHistoryRepository: ChatHistoryRepository = ChatHistoryRepository(temporaryFolder.root),
         memoryRepository: MemoryRepository = MemoryRepository(temporaryFolder.root),
         engine: ChatEngine = FakeChatEngine(),
+        toolRegistry: ToolRegistry = ToolRegistry(),
         nanoTimeProvider: () -> Long = { 0L },
         epochTimeProvider: () -> Long = { 0L }
     ): AppViewModel =
@@ -1293,6 +1450,7 @@ class AppViewModelTest {
             memoryRepository = memoryRepository,
             downloader = downloader,
             engine = engine,
+            toolRegistry = toolRegistry,
             ioDispatcher = mainDispatcherRule.testDispatcher,
             nanoTimeProvider = nanoTimeProvider,
             epochTimeProvider = epochTimeProvider
@@ -1327,6 +1485,7 @@ private class FakeDownloader(
 
 private class FakeChatEngine(
     private val response: String = "response",
+    private val responses: List<String> = emptyList(),
     private val responseDeferred: CompletableDeferred<String>? = null,
     private val streamingResponses: List<String> = emptyList(),
     private val loadFailure: Throwable? = null,
@@ -1340,6 +1499,7 @@ private class FakeChatEngine(
     val streamingImagePaths = mutableListOf<String>()
     var releaseCount = 0
     var cancelCount = 0
+    private var responseIndex = 0
 
     override suspend fun load(
         modelFile: File,
@@ -1352,6 +1512,7 @@ private class FakeChatEngine(
 
     override suspend fun generate(prompt: String): Result<String> {
         prompts += prompt
+        generateFailure?.let { return Result.failure(it) }
         responseDeferred?.let { deferred ->
             return try {
                 Result.success(deferred.await())
@@ -1359,7 +1520,12 @@ private class FakeChatEngine(
                 throw error
             }
         }
-        return generateFailure?.let { Result.failure(it) } ?: Result.success(response)
+        val nextResponse = if (responses.isNotEmpty()) {
+            responses[responseIndex++ % responses.size]
+        } else {
+            response
+        }
+        return Result.success(nextResponse)
     }
 
     override suspend fun generateWithImage(prompt: String, imagePath: String): Result<String> {
@@ -1405,6 +1571,32 @@ private class FakeChatEngine(
 
     override fun cancelGeneration() {
         cancelCount += 1
+    }
+}
+
+private class FakeToolForViewModel(
+    name: String,
+    private val result: ToolResult
+) : Tool {
+    override val definition = ToolDefinition(name = name, description = "fake", parametersSchema = "none")
+    var executeCount = 0
+
+    override suspend fun execute(args: Map<String, Any>): ToolResult {
+        executeCount += 1
+        return result
+    }
+}
+
+private class ThrowingToolForViewModel(
+    name: String,
+    private val error: Throwable
+) : Tool {
+    override val definition = ToolDefinition(name = name, description = "fake", parametersSchema = "none")
+    var executeCount = 0
+
+    override suspend fun execute(args: Map<String, Any>): ToolResult {
+        executeCount += 1
+        throw error
     }
 }
 

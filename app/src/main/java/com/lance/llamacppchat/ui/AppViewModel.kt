@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.lance.llamacppchat.download.ModelDownloadClient
 import com.lance.llamacppchat.download.ModelDownloader
 import com.lance.llamacppchat.inference.ChatEngine
@@ -23,6 +24,12 @@ import com.lance.llamacppchat.prompt.PromptFormatter
 import com.lance.llamacppchat.prompt.PromptFormatterRepository
 import com.lance.llamacppchat.settings.AppSettings
 import com.lance.llamacppchat.settings.AppSettingsRepository
+import com.lance.llamacppchat.tools.NEEDS_SIGN_IN_SENTINEL
+import com.lance.llamacppchat.tools.ToolCall
+import com.lance.llamacppchat.tools.ToolCallParser
+import com.lance.llamacppchat.tools.ToolRegistry
+import com.lance.llamacppchat.tools.ToolResult
+import com.lance.llamacppchat.tools.calendar.GoogleCalendarClient
 import com.lance.llamacppchat.ui.chat.ChatHistoryRepository
 import com.lance.llamacppchat.ui.chat.ChatHistoryState
 import com.lance.llamacppchat.ui.chat.ChatSession
@@ -30,12 +37,16 @@ import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -78,6 +89,8 @@ data class AppState(
     val embeddingModelPath: String? = null,
     val isEmbeddingModelLoaded: Boolean = false,
     val isReIndexing: Boolean = false,
+    val isToolExecuting: Boolean = false,
+    val googleSignedIn: Boolean = false,
 ) {
     val canChat: Boolean
         get() = activeModel != null && !isDownloading && !isLoadingModel && !isGenerating
@@ -104,7 +117,9 @@ class AppViewModel(
     private val engine: ChatEngine = UnavailableChatEngine,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val nanoTimeProvider: () -> Long = System::nanoTime,
-    private val epochTimeProvider: () -> Long = System::currentTimeMillis
+    private val epochTimeProvider: () -> Long = System::currentTimeMillis,
+    private val toolRegistry: ToolRegistry = ToolRegistry(),
+    private val googleCalendarClient: GoogleCalendarClient? = null
 ) : ViewModel() {
     private val initialChatHistoryState = chatHistoryRepository.loadState()
     private val initialPromptFormatterState = promptFormatterRepository.loadState()
@@ -130,10 +145,47 @@ class AppViewModel(
             embeddingModelPath = initialSettings.embeddingModelPath,
             isEmbeddingModelLoaded = false,
             isReIndexing = false,
+            googleSignedIn = googleCalendarClient?.isSignedIn() == true,
         )
     )
     val state: StateFlow<AppState> = mutableState
     private var generationJob: Job? = null
+    private val _signInRequest = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val signInRequest: SharedFlow<Unit> = _signInRequest
+    private var pendingSignIn: CompletableDeferred<Boolean>? = null
+
+    fun handleGoogleSignInResult(account: GoogleSignInAccount?) {
+        googleCalendarClient?.handleSignInResult(account)
+        val success = account != null
+        pendingSignIn?.complete(success)
+        pendingSignIn = null
+        mutableState.update { it.copy(googleSignedIn = success) }
+    }
+
+    fun handleGoogleSignInFailure(message: String) {
+        pendingSignIn?.complete(false)
+        pendingSignIn = null
+        mutableState.update {
+            it.copy(
+                googleSignedIn = false,
+                errorText = message
+            )
+        }
+    }
+
+    private suspend fun awaitGoogleSignIn(): Boolean {
+        pendingSignIn?.complete(false)
+        val deferred = CompletableDeferred<Boolean>()
+        pendingSignIn = deferred
+        _signInRequest.emit(Unit)
+        return try {
+            deferred.await()
+        } finally {
+            if (pendingSignIn === deferred) {
+                pendingSignIn = null
+            }
+        }
+    }
 
     init {
         val savedPath = initialSettings.embeddingModelPath
@@ -383,18 +435,23 @@ class AppViewModel(
         val model = beginGeneration(cleanedPrompt, cleanedImagePath) ?: return
 
         generationJob = viewModelScope.launch {
-            val modelPrompt = promptForModel(cleanedPrompt, hasImage = cleanedImagePath != null)
             val streamResponsesEnabled = mutableState.value.streamResponsesEnabled
             loadModelWithFallback(model).fold(
                 onSuccess = {
-                    val startedAtNanos = nanoTimeProvider()  // start AFTER model is loaded
-                    try {
+                    val startedAtNanos = nanoTimeProvider()
+                    val toolContext = mutableListOf<String>()
+                    var toolExecutions = 0
+
+                    while (isActive) {
+                        val modelPrompt = promptForModel(
+                            cleanedPrompt,
+                            hasImage = cleanedImagePath != null,
+                            toolContext = toolContext
+                        )
                         val streamedText = StringBuilder()
-                        val generationResult = if (streamResponsesEnabled) {
+                        val generationResult = if (streamResponsesEnabled && toolContext.isEmpty()) {
                             val onPartialResponse: (String) -> Unit = { partialResponse ->
-                                if (isActive) {
-                                    updateStreamingAssistant(streamedText, partialResponse)
-                                }
+                                if (isActive) updateStreamingAssistant(streamedText, partialResponse)
                             }
                             if (cleanedImagePath == null) {
                                 engine.generateStreaming(modelPrompt, onPartialResponse)
@@ -408,47 +465,96 @@ class AppViewModel(
                                 engine.generateWithImage(modelPrompt, cleanedImagePath)
                             }
                         }
-                        generationResult.fold(
-                            onSuccess = { response ->
-                                if (!isActive) return@fold
-                                val finalResponse = if (streamResponsesEnabled && streamedText.isNotBlank()) {
-                                    streamedText.toString()
-                                } else {
-                                    response
-                                }
-                                val elapsedSeconds =
-                                    (nanoTimeProvider() - startedAtNanos).coerceAtLeast(0L) / NANOS_PER_SECOND
-                                val totalTokens = estimateTokenCount(finalResponse)
-                                val tokensPerSecond = if (elapsedSeconds > 0.0) {
-                                    totalTokens / elapsedSeconds
-                                } else {
-                                    0.0
-                                }
-                                updateChatState {
-                                    val updated = it.replaceLoadingAssistant(finalResponse)
-                                    updated.withActiveChatMessages(updated.messages).copy(
-                                        isGenerating = false,
-                                        generationStats = GenerationStats(
-                                            elapsedSeconds = elapsedSeconds,
-                                            totalTokens = totalTokens,
-                                            tokensPerSecond = tokensPerSecond
-                                        )
-                                    )
-                                }
-                            },
-                            onFailure = { error ->
-                                if (!isActive) return@fold
-                                updateChatState {
-                                    val updated = it.withoutLoadingAssistant()
-                                    updated.withActiveChatMessages(updated.messages).copy(
-                                        isGenerating = false,
-                                        errorText = error.message ?: "Generation failed"
-                                    )
-                                }
+
+                        val response = generationResult.getOrElse { error ->
+                            if (!isActive) return@launch
+                            updateChatState {
+                                val updated = it.withoutLoadingAssistant()
+                                updated.withActiveChatMessages(updated.messages).copy(
+                                    isGenerating = false,
+                                    isToolExecuting = false,
+                                    errorText = error.message ?: "Generation failed"
+                                )
                             }
-                        )
-                    } catch (error: CancellationException) {
-                        throw error
+                            return@launch
+                        }
+
+                        if (!isActive) return@launch
+
+                        val finalResponse = if (
+                            streamResponsesEnabled &&
+                            toolContext.isEmpty() &&
+                            streamedText.isNotBlank()
+                        ) {
+                            streamedText.toString()
+                        } else {
+                            response
+                        }
+
+                        val toolCall = ToolCallParser.parse(finalResponse)
+                        if (toolCall == null || toolExecutions >= MAX_TOOL_HOPS) {
+                            val displayResponse =
+                                if (toolCall != null && toolExecutions >= MAX_TOOL_HOPS) {
+                                    "I wasn't able to complete that. Try rephrasing."
+                                } else if (finalResponse.isBlank()) {
+                                    BLANK_MODEL_RESPONSE_MESSAGE
+                                } else {
+                                    finalResponse
+                                }
+                            val elapsedSeconds =
+                                (nanoTimeProvider() - startedAtNanos).coerceAtLeast(0L) / NANOS_PER_SECOND
+                            val totalTokens = estimateTokenCount(displayResponse)
+                            val tokensPerSecond = if (elapsedSeconds > 0.0) {
+                                totalTokens / elapsedSeconds
+                            } else {
+                                0.0
+                            }
+                            updateChatState {
+                                val updated = it.replaceLoadingAssistant(displayResponse)
+                                updated.withActiveChatMessages(updated.messages).copy(
+                                    isGenerating = false,
+                                    isToolExecuting = false,
+                                    generationStats = GenerationStats(
+                                        elapsedSeconds = elapsedSeconds,
+                                        totalTokens = totalTokens,
+                                        tokensPerSecond = tokensPerSecond
+                                    )
+                                )
+                            }
+                            break
+                        }
+
+                        updateChatState {
+                            it.updateLoadingAssistant("Using tools...").copy(isToolExecuting = true)
+                        }
+
+                        var toolResult = dispatchToolSafely(toolCall)
+                        if (toolResult.isError && toolResult.content == NEEDS_SIGN_IN_SENTINEL) {
+                            val signedIn = awaitGoogleSignIn()
+                            if (!signedIn) {
+                                updateChatState {
+                                    it.replaceLoadingAssistant(
+                                        "I need Google Calendar access to do that. Try again when you're ready."
+                                    ).let { state -> state.withActiveChatMessages(state.messages) }
+                                        .copy(isGenerating = false, isToolExecuting = false)
+                                }
+                                break
+                            }
+                            toolResult = dispatchToolSafely(toolCall)
+                        }
+
+                        if (toolResult.isError) {
+                            updateChatState {
+                                it.replaceLoadingAssistant(toolResult.content)
+                                    .let { state -> state.withActiveChatMessages(state.messages) }
+                                    .copy(isGenerating = false, isToolExecuting = false)
+                            }
+                            break
+                        }
+
+                        toolContext += "Tool call: ${toolCall.tool}\nTool result: ${toolResult.content}"
+                        toolExecutions += 1
+                        updateChatState { it.copy(isToolExecuting = false) }
                     }
                 },
                 onFailure = { error ->
@@ -457,6 +563,7 @@ class AppViewModel(
                         val updated = it.withoutLoadingAssistant()
                         updated.withActiveChatMessages(updated.messages).copy(
                             isGenerating = false,
+                            isToolExecuting = false,
                             errorText = error.message ?: "Model load failed"
                         )
                     }
@@ -525,9 +632,12 @@ class AppViewModel(
             val updated = it.withoutLoadingAssistant()
             updated.withActiveChatMessages(updated.messages).copy(
                 isGenerating = false,
+                isToolExecuting = false,
                 errorText = "Generation stopped."
             )
         }
+        pendingSignIn?.complete(false)
+        pendingSignIn = null
     }
 
     fun createPromptFormatter(name: String, body: String) {
@@ -711,10 +821,18 @@ class AppViewModel(
     private fun loadingAssistantMessage(): ChatMessage =
         ChatMessage("assistant", "Processing...", isLoading = true)
 
-    private suspend fun promptForModel(userPrompt: String, hasImage: Boolean = false): String {
+    private suspend fun promptForModel(
+        userPrompt: String,
+        hasImage: Boolean = false,
+        toolContext: List<String> = emptyList()
+    ): String {
         val formatter = promptFormatterRepository.loadState().activeFormatter
         val formatterBody = formatter?.body.orEmpty().trim()
         val prompt = if (userPrompt.isBlank() && hasImage) "Describe this image." else userPrompt
+        val toolBlock = toolRegistry.promptBlock().takeIf { it.isNotEmpty() }?.let { block ->
+            val now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d yyyy, h:mm a"))
+            "Current date/time: $now\n\n$block"
+        }
 
         val selectedMemories: List<MemoryItem> = withContext(ioDispatcher) {
             if (mutableState.value.isEmbeddingModelLoaded) {
@@ -736,10 +854,23 @@ class AppViewModel(
             .takeIf { it.isNotEmpty() }
             ?.joinToString(separator = "\n", prefix = "Memory:\n") { "- ${it.key}: ${it.value}" }
 
-        return listOf(formatterBody, memoryBlock, "User message:\n$prompt")
+        val toolContextBlock = toolContext.takeIf { it.isNotEmpty() }
+            ?.joinToString(separator = "\n\n")
+
+        return listOf(formatterBody, toolBlock, memoryBlock, "User message:\n$prompt", toolContextBlock)
             .filterNot { it.isNullOrBlank() }
             .joinToString("\n\n")
     }
+
+    private suspend fun dispatchToolSafely(toolCall: ToolCall): ToolResult =
+        runCatching { toolRegistry.dispatch(toolCall) }
+            .getOrElse { error ->
+                ToolResult(
+                    tool = toolCall.tool,
+                    content = "Tool '${toolCall.tool}' failed: ${error.message ?: error::class.java.simpleName}",
+                    isError = true
+                )
+            }
 
     private fun mergeStreamChunk(currentText: String, chunk: String): String =
         if (chunk.startsWith(currentText)) {
@@ -930,6 +1061,8 @@ class AppViewModel(
         const val NANOS_PER_SECOND = 1_000_000_000.0
         const val NEW_CHAT_TITLE = "New chat"
         const val MAX_CHAT_TITLE_LENGTH = 48
+        const val MAX_TOOL_HOPS = 3
+        const val BLANK_MODEL_RESPONSE_MESSAGE = "I didn't receive a usable response from the model. Please try again."
     }
 }
 
