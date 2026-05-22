@@ -58,10 +58,11 @@ data class ToolResult(val tool: String, val content: String, val isError: Boolea
 ```kotlin
 class AppViewModel(
     // ... existing ...
-    private val toolRegistry: ToolRegistry = ToolRegistry(),
-    private val onRequestGoogleSignIn: () -> Unit = {}
+    private val toolRegistry: ToolRegistry = ToolRegistry()
 )
 ```
+
+`AppViewModel` exposes a `SharedFlow<Unit>` called `signInRequest`. `MainActivity` collects it and launches the Google Sign-In intent. This keeps the ViewModel free of Activity references.
 
 ### New AppState fields
 
@@ -95,7 +96,7 @@ Hidden tool messages are included in the prompt but not displayed in the chat UI
 
 ### Google Sign-In event
 
-`AppViewModel` exposes a `SharedFlow<Unit>` called `signInRequest`. `MainActivity` collects it and launches the Google Sign-In intent via `ActivityResultLauncher`. After the user completes consent, `MainActivity` calls `viewModel.handleGoogleSignInResult(account: GoogleSignInAccount?)`.
+`MainActivity` collects `signInRequest` and launches the Google Sign-In intent via `ActivityResultLauncher`. After the user completes consent, `MainActivity` calls `viewModel.handleGoogleSignInResult(account: GoogleSignInAccount?)`.
 
 ---
 
