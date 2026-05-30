@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename the app identity from LiteRT Chat to LlamaCpp Chat while preserving the existing llama.cpp GGUF runtime.
+**Goal:** Rename the app identity from LiteRT Chat to xChat while preserving the existing llama.cpp GGUF runtime.
 
-**Architecture:** Keep runtime behavior unchanged. Rename the Android namespace/application ID, Kotlin packages, source paths, tests, and user-facing labels from `litertchat`/LiteRT Chat to `llamacppchat`/LlamaCpp Chat.
+**Architecture:** Keep runtime behavior unchanged. Rename the Android namespace/application ID, Kotlin packages, source paths, tests, and user-facing labels from `litertchat`/LiteRT Chat to `llamacppchat`/xChat.
 
 **Tech Stack:** Kotlin, Android Gradle Plugin, Jetpack Compose Material 3, llama.cpp Android library.
 
@@ -34,7 +34,7 @@
 - Modify: Android string resources and Compose UI text.
 - Modify: Tests that assert app text.
 
-- [ ] Replace remaining LiteRT Chat wording with LlamaCpp Chat.
+- [ ] Replace remaining LiteRT Chat wording with xChat.
 - [ ] Keep neutral historical test fixture text only where it is data content and not product identity.
 
 ### Task 4: Verification

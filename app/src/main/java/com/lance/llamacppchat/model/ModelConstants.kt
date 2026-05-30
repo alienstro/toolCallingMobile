@@ -1,8 +1,8 @@
 package com.lance.llamacppchat.model
 
 object ModelConstants {
-    const val DEFAULT_MODEL_REPOSITORY = "bartowski/Qwen2.5-1.5B-Instruct-GGUF"
-    const val DEFAULT_MODEL_FILE = "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+    const val DEFAULT_MODEL_REPOSITORY = "unsloth/Qwen3.5-0.8B-GGUF"
+    const val DEFAULT_MODEL_FILE = "Qwen3.5-0.8B-Q8_0.gguf"
     const val DEFAULT_MODEL_URL =
         "https://huggingface.co/$DEFAULT_MODEL_REPOSITORY/resolve/main/$DEFAULT_MODEL_FILE"
     const val MODEL_EXTENSION = ".gguf"

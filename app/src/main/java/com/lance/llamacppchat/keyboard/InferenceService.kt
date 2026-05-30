@@ -50,7 +50,7 @@ class InferenceService : Service() {
                         callback.onModelLoading()
                         val modelFile = ModelRepository(filesDir).installedModelFile()
                         if (modelFile == null) {
-                            callback.onError("No model installed. Open LlamaCpp Chat to download one.")
+                            callback.onError("No model installed. Open xChat to download one.")
                             return@launch
                         }
                         engine.load(modelFile, InferenceRuntimeConfig.defaultCpu)

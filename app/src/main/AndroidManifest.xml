@@ -6,42 +6,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <application
-        android:allowBackup="true"
-        android:label="LlamaCpp Chat"
-        android:theme="@style/AppTheme">
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
+    <application android:allowBackup="true" android:label="xChat" android:theme="@style/AppTheme">
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.fileprovider" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".overlay.OverlayPanelActivity"
-            android:exported="false"
-            android:theme="@style/Theme.Overlay"
-            android:windowSoftInputMode="adjustResize"
-            android:taskAffinity=""
-            android:excludeFromRecents="true"
-            android:launchMode="singleTop" />
+        <activity android:name=".overlay.OverlayPanelActivity" android:exported="false" android:theme="@style/Theme.Overlay" android:windowSoftInputMode="adjustResize" android:taskAffinity="" android:excludeFromRecents="true" android:launchMode="singleTop" />
 
-        <activity
-            android:name=".ProcessTextActivity"
-            android:exported="true"
-            android:label="Ask LlamaCpp Chat">
+        <activity android:name=".ProcessTextActivity" android:exported="true" android:label="Ask xChat">
             <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -49,17 +28,10 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name=".keyboard.InferenceService"
-            android:exported="false" />
+        <service android:name=".keyboard.InferenceService" android:exported="false" />
 
-        <service
-            android:name=".overlay.OverlayService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Floating AI assistant button for quick access" />
+        <service android:name=".overlay.OverlayService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Floating AI assistant button for quick access" />
         </service>
     </application>
 </manifest>

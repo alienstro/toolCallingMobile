@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.TimeUnit
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -21,7 +22,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class GoogleCalendarClientImpl(private val context: Context) : GoogleCalendarClient {
-    private val httpClient = OkHttpClient()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
     private var account: GoogleSignInAccount? =
         GoogleSignIn.getLastSignedInAccount(context)?.takeIf { signedInAccount ->
             GoogleSignIn.hasPermissions(signedInAccount, CALENDAR_SCOPE)
@@ -48,54 +52,90 @@ class GoogleCalendarClientImpl(private val context: Context) : GoogleCalendarCli
     override suspend fun listEvents(date: String): Result<List<CalendarEvent>> = runCatching {
         val zone = ZoneId.systemDefault()
         val localDate = LocalDate.parse(date)
-        fetchEvents(localDate, localDate.plusDays(1), zone)
+        fetchEventsFromAllCalendars(localDate, localDate.plusDays(1), zone)
     }
 
     override suspend fun listEvents(startDate: String, endDate: String): Result<List<CalendarEvent>> = runCatching {
         val zone = ZoneId.systemDefault()
-        fetchEvents(LocalDate.parse(startDate), LocalDate.parse(endDate), zone)
+        fetchEventsFromAllCalendars(LocalDate.parse(startDate), LocalDate.parse(endDate), zone)
     }
 
-    private suspend fun fetchEvents(
+    private suspend fun fetchEventsFromAllCalendars(
+        startDate: LocalDate,
+        endDate: LocalDate,
+        zone: ZoneId
+    ): List<CalendarEvent> {
+        val calendarIds = fetchCalendarIds()
+        return calendarIds
+            .flatMap { id -> fetchEventsForCalendar(id, startDate, endDate, zone) }
+            .distinctBy { it.id }
+            .sortedBy { it.start }
+    }
+
+    private suspend fun fetchCalendarIds(): List<String> {
+        val token = accessToken()
+        val request = Request.Builder()
+            .url("https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&fields=items(id)")
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+
+        val body = withContext(Dispatchers.IO) {
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                response.body?.string()
+            }
+        } ?: return listOf("primary")
+
+        val items = JSONObject(body).optJSONArray("items") ?: return listOf("primary")
+        val ids = (0 until items.length()).mapNotNull { i ->
+            items.getJSONObject(i).optString("id").takeIf { it.isNotBlank() }
+        }
+        return ids.ifEmpty { listOf("primary") }
+    }
+
+    private suspend fun fetchEventsForCalendar(
+        calendarId: String,
         startDate: LocalDate,
         endDate: LocalDate,
         zone: ZoneId
     ): List<CalendarEvent> {
         val token = accessToken()
         val fmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME
+        val encodedId = URLEncoder.encode(calendarId, "UTF-8")
         val timeMin = URLEncoder.encode(startDate.atStartOfDay(zone).format(fmt), "UTF-8")
         val timeMax = URLEncoder.encode(endDate.atStartOfDay(zone).format(fmt), "UTF-8")
 
         val request = Request.Builder()
             .url(
-                "https://www.googleapis.com/calendar/v3/calendars/primary/events" +
+                "https://www.googleapis.com/calendar/v3/calendars/$encodedId/events" +
                     "?timeMin=$timeMin&timeMax=$timeMax&singleEvents=true&orderBy=startTime"
             )
             .addHeader("Authorization", "Bearer $token")
             .build()
 
-        val body = withContext(Dispatchers.IO) {
-            httpClient.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string() ?: "{}"
-                if (!response.isSuccessful) error(calendarApiErrorMessage(response.code, responseBody))
-                responseBody
-            }
-        }
+        return runCatching {
+            val body = withContext(Dispatchers.IO) {
+                httpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@withContext null
+                    response.body?.string()
+                }
+            } ?: return@runCatching emptyList()
 
-        val items = JSONObject(body).optJSONArray("items") ?: return emptyList()
-        return (0 until items.length()).map { index ->
-            val item = items.getJSONObject(index)
-            CalendarEvent(
-                id = item.optString("id"),
-                title = item.optString("summary", "(No title)"),
-                start = item.optJSONObject("start")?.optString("dateTime")
-                    ?: item.optJSONObject("start")?.optString("date")
-                    ?: "",
-                end = item.optJSONObject("end")?.optString("dateTime")
-                    ?: item.optJSONObject("end")?.optString("date")
-                    ?: ""
-            )
-        }
+            val items = JSONObject(body).optJSONArray("items") ?: return@runCatching emptyList()
+            (0 until items.length()).map { index ->
+                val item = items.getJSONObject(index)
+                CalendarEvent(
+                    id = item.optString("id"),
+                    title = item.optString("summary", "(No title)"),
+                    start = item.optJSONObject("start")?.optString("dateTime")
+                        ?: item.optJSONObject("start")?.optString("date")
+                        ?: "",
+                    end = item.optJSONObject("end")?.optString("dateTime")
+                        ?: item.optJSONObject("end")?.optString("date")
+                        ?: ""
+                )
+            }
+        }.getOrDefault(emptyList())
     }
 
     override suspend fun createEvent(

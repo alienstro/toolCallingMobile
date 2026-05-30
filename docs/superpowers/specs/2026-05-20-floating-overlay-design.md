@@ -6,7 +6,7 @@
 
 ## Overview
 
-Replace the custom IME keyboard with a floating overlay button that appears over any app. Tapping the button opens an AI panel above the active keyboard (Gboard or any other). A second entry point — "Ask LlamaCpp Chat" in the Android text selection menu — opens the main app with selected text pre-filled for a full conversation.
+Replace the custom IME keyboard with a floating overlay button that appears over any app. Tapping the button opens an AI panel above the active keyboard (Gboard or any other). A second entry point — "Ask xChat" in the Android text selection menu — opens the main app with selected text pre-filled for a full conversation.
 
 ---
 
@@ -52,7 +52,7 @@ The panel is positioned just above the active keyboard. `OverlayService` listens
 
 ### Entry Point 2: Text Selection → Main App
 
-`ProcessTextActivity` is registered for `android.intent.action.PROCESS_TEXT` in `AndroidManifest.xml`. When the user selects text in any app and taps "Ask LlamaCpp Chat" in the selection menu, Android delivers the selected text via `Intent.EXTRA_PROCESS_TEXT`. `ProcessTextActivity` launches `MainActivity` with the text as an extra, then finishes itself. `MainActivity` reads the extra in `onNewIntent`/`onCreate` and pre-fills the chat input with `"Rewrite this: $selectedText"`.
+`ProcessTextActivity` is registered for `android.intent.action.PROCESS_TEXT` in `AndroidManifest.xml`. When the user selects text in any app and taps "Ask xChat" in the selection menu, Android delivers the selected text via `Intent.EXTRA_PROCESS_TEXT`. `ProcessTextActivity` launches `MainActivity` with the text as an extra, then finishes itself. `MainActivity` reads the extra in `onNewIntent`/`onCreate` and pre-fills the chat input with `"Rewrite this: $selectedText"`.
 
 ---
 

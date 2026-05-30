@@ -8,18 +8,26 @@ import org.junit.Test
 
 class ModelConstantsTest {
     @Test
-    fun defaultModelUrlMatchesBartowskiQwen25GgufResolveUrl() {
+    fun defaultModelUrlMatchesUnslothQwen35Q8GgufResolveUrl() {
         assertEquals(
-            "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+            "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q8_0.gguf",
             ModelConstants.DEFAULT_MODEL_URL
         )
     }
 
     @Test
-    fun defaultModelRepoIsBartowskiQwen25GgufRepo() {
+    fun defaultModelRepoIsUnslothQwen35GgufRepo() {
         assertEquals(
-            "bartowski/Qwen2.5-1.5B-Instruct-GGUF",
+            "unsloth/Qwen3.5-0.8B-GGUF",
             ModelConstants.DEFAULT_MODEL_REPOSITORY
+        )
+    }
+
+    @Test
+    fun defaultModelFileIsQwen35Q8Gguf() {
+        assertEquals(
+            "Qwen3.5-0.8B-Q8_0.gguf",
+            ModelConstants.DEFAULT_MODEL_FILE
         )
     }
 
@@ -51,6 +59,6 @@ class ModelConstantsTest {
 
     @Test
     fun genericModelFileNameDoesNotReturnHardwareWarning() {
-        assertNull(ModelConstants.hardwareWarningForFileName("Qwen3.5-0.8B-Q4_K_M.gguf"))
+        assertNull(ModelConstants.hardwareWarningForFileName("Qwen3.5-0.8B-Q8_0.gguf"))
     }
 }

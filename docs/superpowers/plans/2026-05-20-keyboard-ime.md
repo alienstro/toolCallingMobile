@@ -476,7 +476,7 @@ class InferenceService : Service() {
                         callback.onModelLoading()
                         val modelFile = ModelRepository(filesDir).installedModelFile()
                         if (modelFile == null) {
-                            callback.onError("No model installed. Open LlamaCpp Chat to download one.")
+                            callback.onError("No model installed. Open xChat to download one.")
                             return@launch
                         }
                         startActivity(
@@ -1172,14 +1172,14 @@ Expected: BUILD SUCCESSFUL, app installed on device.
 
 On the device:
 1. Open **Settings → General Management → Keyboard list and default** (or search "keyboard" in Settings)
-2. Tap **Add keyboard** → enable **LlamaCpp Chat**
+2. Tap **Add keyboard** → enable **xChat**
 3. In the same screen, set it as the default, or leave Gboard as default (the user switches per-use via the globe icon)
 
 - [ ] **Step 3: Test the idle + ask flow**
 
 1. Open any app with a text field (e.g. Notes)
 2. Tap the text field to bring up the keyboard
-3. Tap the globe/keyboard icon in the navigation bar → select **LlamaCpp Chat**
+3. Tap the globe/keyboard icon in the navigation bar → select **xChat**
 4. Verify: keyboard area shows the panel zone (text input + Ask button) above QWERTY keys
 5. Type "What is 2+2?" using the QWERTY keys
 6. Tap Ask (or ↵)
@@ -1190,8 +1190,8 @@ On the device:
 
 - [ ] **Step 4: Test the loading flow**
 
-1. Force-stop the app: **Settings → Apps → LlamaCpp Chat → Force stop**
-2. Open Notes, switch keyboard to LlamaCpp Chat
+1. Force-stop the app: **Settings → Apps → xChat → Force stop**
+2. Open Notes, switch keyboard to xChat
 3. Type a prompt and tap Ask
 4. Verify: panel shows Loading state with cycling messages ("Starting app…" → "Loading model…" → "Almost ready…")
 5. Verify: main app opens in background during loading
@@ -1200,7 +1200,7 @@ On the device:
 - [ ] **Step 5: Test selected text rewrite**
 
 1. In Notes, type some text and select a word or sentence
-2. Switch keyboard to LlamaCpp Chat
+2. Switch keyboard to xChat
 3. Verify: panel input is pre-filled with "Rewrite this: [selected text]" and "Selected text detected" label is shown
 4. Tap Ask — verify the AI rewrites the text
 5. Tap Insert — verify it replaces the input field content
@@ -1215,7 +1215,7 @@ On the device:
 
 - [ ] **Step 7: Test engine busy**
 
-1. Open the main LlamaCpp Chat app and start a long generation
+1. Open the main xChat app and start a long generation
 2. Switch to another app, open LlamaCpp keyboard, type a prompt and tap Ask
 3. Verify: error banner shows "Engine is busy — please wait"
 

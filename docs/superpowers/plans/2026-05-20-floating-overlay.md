@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the custom IME keyboard with a floating AI button that appears over any app — tapping it opens a bottom sheet AI panel above the active keyboard, and a text selection menu entry ("Ask LlamaCpp Chat") opens the same panel pre-filled with the selected text.
+**Goal:** Replace the custom IME keyboard with a floating AI button that appears over any app — tapping it opens a bottom sheet AI panel above the active keyboard, and a text selection menu entry ("Ask xChat") opens the same panel pre-filled with the selected text.
 
 **Architecture:** `OverlayService` (ForegroundService) manages a draggable floating button added to `WindowManager`. Tapping the button starts `OverlayPanelActivity` (transparent theme), which binds to the existing `InferenceService` and shows `OverlayPanel` (Compose bottom sheet). `ProcessTextActivity` registers for `ACTION_PROCESS_TEXT` and starts `OverlayPanelActivity` with the selected text. The main app's Settings screen gains an overlay toggle that checks `SYSTEM_ALERT_WINDOW` permission before starting/stopping the service.
 
@@ -75,7 +75,7 @@ Full replacement of `app/src/main/AndroidManifest.xml`:
 
     <application
         android:allowBackup="true"
-        android:label="LlamaCpp Chat"
+        android:label="xChat"
         android:theme="@style/AppTheme">
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -106,7 +106,7 @@ Full replacement of `app/src/main/AndroidManifest.xml`:
         <activity
             android:name=".ProcessTextActivity"
             android:exported="true"
-            android:label="Ask LlamaCpp Chat">
+            android:label="Ask xChat">
             <intent-filter>
                 <action android:name="android.intent.action.PROCESS_TEXT" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -1100,7 +1100,7 @@ Verify all flows on-device.
 
 - [ ] **Step 1: Enable the overlay**
 
-1. Open LlamaCpp Chat → Settings
+1. Open xChat → Settings
 2. Toggle "Floating AI button" ON
 3. Android prompts "Display over other apps" → grant permission
 4. Verify: small "AI" circle button appears floating on screen, bottom-right corner
@@ -1124,10 +1124,10 @@ Verify all flows on-device.
 7. Long-press in any text field → Paste → verify AI response pastes
 8. Tap Ask again → verify panel resets to Idle
 
-- [ ] **Step 4: Test text selection ("Ask LlamaCpp Chat")**
+- [ ] **Step 4: Test text selection ("Ask xChat")**
 
 1. Open Chrome/Notes, select some text
-2. In the popup menu (Copy, Share, …), tap the three-dot → verify "Ask LlamaCpp Chat" appears
+2. In the popup menu (Copy, Share, …), tap the three-dot → verify "Ask xChat" appears
 3. Tap it → verify the AI panel opens with "Rewrite this: [selected text]" pre-filled and "Selected text detected" label
 4. Tap Ask → verify the AI rewrites the text
 
@@ -1159,7 +1159,7 @@ git commit -m "feat: floating AI overlay complete"
 | OverlayPanelActivity: pre-fills from selected text | Task 3 |
 | OverlayPanelActivity: AIDL callbacks on main thread | Task 3 |
 | ProcessTextActivity: ACTION_PROCESS_TEXT | Task 4 |
-| "Ask LlamaCpp Chat" in selection menu | Task 4 |
+| "Ask xChat" in selection menu | Task 4 |
 | OverlayService: ForegroundService + notification | Task 5 |
 | Floating button: draggable | Task 5 |
 | Floating button: snaps to edge | Task 5 |

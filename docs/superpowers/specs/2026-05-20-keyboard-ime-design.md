@@ -149,7 +149,7 @@ Idle ──► Loading ──► Idle (model ready) ──► Generating ──�
 | Error | Display |
 |-------|---------|
 | Engine busy | `WarningBanner` with "Engine is busy — please wait" |
-| No model installed | `WarningBanner` with "No model installed. Open LlamaCpp Chat to download one." |
+| No model installed | `WarningBanner` with "No model installed. Open xChat to download one." |
 | Generation failed | `WarningBanner` with error message; Insert/Copy hidden |
 
 Uses existing `WarningBanner` composable from `UiKit.kt`.

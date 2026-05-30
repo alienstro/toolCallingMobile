@@ -328,10 +328,10 @@ class AppViewModelTest {
         repository.saveMetadata(installedModel(path = modelFile.absolutePath))
         val viewModel = testViewModel(repository, engine = FakeChatEngine(response = "Hi"))
 
-        viewModel.sendMessage(" Explain how LlamaCpp chat state works on mobile ")
+        viewModel.sendMessage(" Explain how xChat state works on mobile ")
         advanceUntilIdle()
 
-        assertEquals("Explain how LlamaCpp chat state works on mobile", viewModel.state.value.activeChatSession?.title)
+        assertEquals("Explain how xChat state works on mobile", viewModel.state.value.activeChatSession?.title)
         assertEquals(
             viewModel.state.value.messages,
             viewModel.state.value.activeChatSession?.messages
@@ -1195,6 +1195,118 @@ class AppViewModelTest {
             rangeTool.lastArgs
         )
         assertEquals("You have Workout this month.", viewModel.state.value.messages.last().content)
+    }
+
+    @Test
+    fun sendMessageFixesMalformedListEventsRangeCallMissingStartDate() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val rangeTool = FakeToolForViewModel(
+            "list_events_range",
+            ToolResult("list_events_range", "Events from 1970-01-01 to 1970-02-01:\n- Workout")
+        )
+        val engine = FakeChatEngine(
+            responses = listOf(
+                "{\"tool\":\"list_events_range\",\"args\":{}}",
+                "You have Workout this month."
+            )
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(rangeTool)),
+            epochTimeProvider = { 1_252_800_000L }
+        )
+
+        viewModel.sendMessage("give me my sched for this month")
+        advanceUntilIdle()
+
+        assertEquals(1, rangeTool.executeCount)
+        assertEquals(
+            mapOf("start_date" to "1970-01-01", "end_date" to "1970-02-01"),
+            rangeTool.lastArgs
+        )
+    }
+
+    @Test
+    fun sendMessageUsesRangeToolWhenMonthSchedulePromptGetsDirectModelAnswer() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val rangeTool = FakeToolForViewModel(
+            "list_events_range",
+            ToolResult("list_events_range", "Events from 1970-01-01 to 1970-02-01:\n- Workout")
+        )
+        val engine = FakeChatEngine(
+            responses = listOf(
+                "It seems there are no events scheduled for this month.",
+                "You have Workout this month."
+            )
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(rangeTool)),
+            epochTimeProvider = { 1_252_800_000L }
+        )
+
+        viewModel.sendMessage("give me sched for thid month")
+        advanceUntilIdle()
+
+        assertEquals(1, rangeTool.executeCount)
+        assertEquals(
+            mapOf("start_date" to "1970-01-01", "end_date" to "1970-02-01"),
+            rangeTool.lastArgs
+        )
+        assertEquals("You have Workout this month.", viewModel.state.value.messages.last().content)
+    }
+
+    @Test
+    fun sendMessageUsesRangeToolWhenMonthPhraseContainsThisButNoCalendarKeyword() = runTest(mainDispatcherRule.testDispatcher) {
+        val modelFile = File(temporaryFolder.root, "model.gguf").also { it.writeText("model") }
+        val repository = ModelRepository(temporaryFolder.root).also {
+            it.saveMetadata(installedModel(modelFile.absolutePath))
+        }
+        val rangeTool = FakeToolForViewModel(
+            "list_events_range",
+            ToolResult("list_events_range", "Events from 1970-01-01 to 1970-02-01:\n- Workout")
+        )
+        val engine = FakeChatEngine(
+            responses = listOf(
+                "",
+                "You have Workout this month."
+            )
+        )
+        val settingsRepository = AppSettingsRepository(temporaryFolder.root).also {
+            it.setStreamResponsesEnabled(false)
+        }
+        val viewModel = testViewModel(
+            repository = repository,
+            appSettingsRepository = settingsRepository,
+            engine = engine,
+            toolRegistry = ToolRegistry(listOf(rangeTool)),
+            epochTimeProvider = { 1_252_800_000L }
+        )
+
+        viewModel.sendMessage("this month of may from may 1st to last day of may")
+        advanceUntilIdle()
+
+        assertEquals(1, rangeTool.executeCount)
+        assertEquals(
+            mapOf("start_date" to "1970-01-01", "end_date" to "1970-02-01"),
+            rangeTool.lastArgs
+        )
     }
 
     @Test

@@ -37,8 +37,10 @@ import java.io.File
 import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
@@ -482,7 +484,7 @@ class AppViewModel(
 
                         if (!isActive) return@launch
 
-                        val finalResponse = if (
+                        val rawResponse = if (
                             streamResponsesEnabled &&
                             toolContext.isEmpty() &&
                             streamedText.isNotBlank()
@@ -491,9 +493,11 @@ class AppViewModel(
                         } else {
                             response
                         }
+                        val finalResponse = rawResponse.stripThinkingTokens()
 
-                        val toolCall = ToolCallParser.parse(finalResponse)
+                        val toolCall = ToolCallParser.parse(rawResponse)
                             ?.let { normalizeCalendarToolCall(cleanedPrompt, it) }
+                            ?: cleanedPrompt.inferredCalendarToolCall(toolContext)
                         if (toolCall == null || toolExecutions >= MAX_TOOL_HOPS) {
                             val displayResponse =
                                 if (toolCall != null && toolExecutions >= MAX_TOOL_HOPS) {
@@ -875,13 +879,46 @@ class AppViewModel(
             }
 
     private fun normalizeCalendarToolCall(userPrompt: String, toolCall: ToolCall): ToolCall {
-        if (toolCall.tool != "list_events" || !userPrompt.requestsCalendarMonth()) {
-            return toolCall
+        if (!userPrompt.requestsCalendarMonth()) return toolCall
+
+        return when (toolCall.tool) {
+            "list_events" -> {
+                val date = (toolCall.args["date"] as? String)
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    ?: return toolCall
+                val start = date.withDayOfMonth(1)
+                ToolCall(
+                    tool = "list_events_range",
+                    args = mapOf("start_date" to start.toString(), "end_date" to start.plusMonths(1).toString())
+                )
+            }
+            "list_events_range" -> {
+                val startDate = (toolCall.args["start_date"] as? String)
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val endDate = (toolCall.args["end_date"] as? String)
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                if (startDate != null && endDate != null) return toolCall
+                val today = Instant.ofEpochMilli(epochTimeProvider())
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate()
+                val start = today.withDayOfMonth(1)
+                ToolCall(
+                    tool = "list_events_range",
+                    args = mapOf("start_date" to start.toString(), "end_date" to start.plusMonths(1).toString())
+                )
+            }
+            else -> toolCall
         }
-        val date = (toolCall.args["date"] as? String)
-            ?.let { rawDate -> runCatching { LocalDate.parse(rawDate) }.getOrNull() }
-            ?: return toolCall
-        val start = date.withDayOfMonth(1)
+    }
+
+    private fun String.inferredCalendarToolCall(toolContext: List<String>): ToolCall? {
+        if (toolContext.isNotEmpty() || !requestsCalendarMonth()) {
+            return null
+        }
+        val currentDate = Instant.ofEpochMilli(epochTimeProvider())
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+        val start = currentDate.withDayOfMonth(1)
         val end = start.plusMonths(1)
         return ToolCall(
             tool = "list_events_range",
@@ -894,7 +931,10 @@ class AppViewModel(
 
     private fun String.requestsCalendarMonth(): Boolean {
         val prompt = lowercase()
-        return "month" in prompt && ("calendar" in prompt || "sched" in prompt || "schedule" in prompt)
+        return "month" in prompt && (
+            "calendar" in prompt || "sched" in prompt || "schedule" in prompt ||
+            "event" in prompt || "this" in prompt || "next" in prompt || "last" in prompt
+        )
     }
 
     private fun mergeStreamChunk(currentText: String, chunk: String): String =
@@ -1090,6 +1130,9 @@ class AppViewModel(
         const val BLANK_MODEL_RESPONSE_MESSAGE = "I didn't receive a usable response from the model. Please try again."
     }
 }
+
+private fun String.stripThinkingTokens(): String =
+    replace(Regex("<think>[\\s\\S]*?</think>\\s*"), "").trim()
 
 private fun AppState.withoutLoadingAssistant(): AppState =
     copy(messages = messages.filterNot { it.role == "assistant" && it.isLoading })
